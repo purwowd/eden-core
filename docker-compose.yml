@@ -1,0 +1,121 @@
+version: '3.8'
+
+services:
+  eden-core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: eden-core:latest
+    container_name: eden-core-app
+    restart: unless-stopped
+    
+    # Environment configuration
+    environment:
+      - EDEN_LOG_LEVEL=info
+      - EDEN_LOG_FORMAT=json
+      - EDEN_STORAGE_BASE_PATH=/app/protected
+      - EDEN_KEY_DIR=/app/keys
+      - EDEN_BACKUP_DIR=/app/backups
+      - EDEN_TEMP_DIR=/tmp/eden
+      - EDEN_MAX_FILE_SIZE=104857600  # 100MB
+    
+    # Persistent volumes
+    volumes:
+      - eden_protected:/app/protected
+      - eden_keys:/app/keys  
+      - eden_backups:/app/backups
+      - ./input:/app/input:ro  # Mount input directory (read-only)
+      - ./output:/app/output   # Mount output directory
+    
+    # No port mapping needed for CLI application
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "eden", "-help"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Security settings
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/tmp
+    
+    # Network
+    networks:
+      - eden-network
+
+  # Development service with debugging capabilities
+  eden-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    image: eden-core:dev
+    container_name: eden-core-dev
+    restart: "no"
+    
+    environment:
+      - EDEN_LOG_LEVEL=debug
+      - EDEN_ENV=development
+    
+    volumes:
+      - .:/app
+      - eden_dev_cache:/go/pkg
+    
+    working_dir: /app
+    command: ["go", "run", "./cmd/eden", "--help"]
+    
+    networks:
+      - eden-network
+    
+    profiles:
+      - dev
+
+# Named volumes for data persistence
+volumes:
+  eden_protected:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/protected
+  
+  eden_keys:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/keys
+  
+  eden_backups:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/backups
+  
+  eden_dev_cache:
+    driver: local
+
+# Network for Eden Core services
+networks:
+  eden-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16 
