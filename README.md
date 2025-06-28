@@ -8,8 +8,6 @@ Eden Core is a universal source code protection system that uses enterprise-grad
 
 <div align="center">
 
-[![CI](https://github.com/purwowd/eden-core/workflows/CI/badge.svg)](https://github.com/purwowd/eden-core/actions)
-[![Go Report Card](https://goreportcard.com/badge/github.com/purwowd/eden-core)](https://goreportcard.com/report/github.com/purwowd/eden-core)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/badge/Go-1.21+-blue.svg)](https://golang.org/dl/)
 
