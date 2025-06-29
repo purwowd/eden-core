@@ -37,21 +37,6 @@ func main() {
 		fmt.Printf(Banner, Version)
 	}
 
-	// Handle examples
-	if *flags.Examples {
-		showExamples()
-		return
-	}
-
-	// Handle demo
-	if *flags.Demo {
-		if err := runAdvancedFeaturesDemo(); err != nil {
-			fmt.Printf("Demo failed: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
 	// Handle security analysis
 	if *flags.Security {
 		showSecurityAnalysis()
@@ -60,7 +45,7 @@ func main() {
 
 	// Handle benchmark
 	if *flags.Benchmark {
-		if err := runBenchmark(); err != nil {
+		if err := runComprehensiveBenchmark(); err != nil {
 			fmt.Printf("Benchmark failed: %v\n", err)
 			os.Exit(1)
 		}
@@ -207,121 +192,6 @@ func handleNetworkOperations(flags *CLIFlags) error {
 
 // Stub implementations for functions called from main but not implemented elsewhere
 
-func showExamples() {
-	fmt.Printf("EDEN CORE: ADVANCED SECURITY FEATURES EXAMPLES\n")
-	fmt.Printf("================================================================\n\n")
-
-	fmt.Printf("MULTIAUTH PROTECTION\n")
-	fmt.Printf("------------------------------------------------------\n")
-	fmt.Printf("# Protect with 2-of-3 MultiAuth\n")
-	fmt.Printf("eden -protect -input critical_app.py -multiauth '2-of-3' \\\n")
-	fmt.Printf("  -signers 'dev_lead_pubkey,security_lead_pubkey,product_manager_pubkey'\n\n")
-	fmt.Printf("# Check MultiAuth status\n")
-	fmt.Printf("eden -multiauth-status -input critical_app.py.multiauth\n\n")
-
-	fmt.Printf("TIMELOCK PROTECTION\n")
-	fmt.Printf("------------------------------------------------------\n")
-	fmt.Printf("# Lock until specific date\n")
-	fmt.Printf("eden -protect -input production_app.py -timelock '2024-12-25T00:00:00Z'\n\n")
-	fmt.Printf("# Lock for relative time (7 days)\n")
-	fmt.Printf("eden -protect -input app.py -timelock '+7days'\n\n")
-
-	fmt.Printf("OWNERSHIP CONTROL\n")
-	fmt.Printf("------------------------------------------------------\n")
-	fmt.Printf("# Create ownership-based access control\n")
-	fmt.Printf("eden -protect -input valuable_lib.py -ownership-mode \\\n")
-	fmt.Printf("  -ownership-value 1000000\n\n")
-
-	fmt.Printf("POLICY SCRIPT SYSTEM\n")
-	fmt.Printf("------------------------------------------------------\n")
-	fmt.Printf("# Simple team-based access\n")
-	fmt.Printf("eden -protect -input team_app.py -policyscript 'developers OP_CHECKTEAM'\n\n")
-
-	fmt.Printf("DEMONSTRATION\n")
-	fmt.Printf("------------------------------------------------------\n")
-	fmt.Printf("# Run full advanced features demo\n")
-	fmt.Printf("eden -demo\n\n")
-}
-
-func runAdvancedFeaturesDemo() error {
-	fmt.Printf("ADVANCED SECURITY FEATURES DEMONSTRATION\n")
-	fmt.Printf("================================================================\n\n")
-
-	// Create demo source file
-	demoFile := "demo_app.py"
-	demoContent := `#!/usr/bin/env python3
-# Demo Application for Advanced Security Features
-print("Eden Core Advanced Security Demo")
-print("This code is protected with enterprise-grade security!")
-print("Algorithm: F = K · G (secp256k1)")
-print("Features: MultiAuth, TimeLock, Ownership, PolicyScript")
-`
-	if err := os.WriteFile(demoFile, []byte(demoContent), 0644); err != nil {
-		return fmt.Errorf("failed to create demo file: %v", err)
-	}
-	defer os.Remove(demoFile)
-
-	fmt.Printf("Created demo file: %s\n\n", demoFile)
-
-	// Demo all features using the actual demo functions
-	fmt.Printf("DEMO 1: MULTIAUTH PROTECTION\n")
-	fmt.Printf("------------------------------------------------------\n")
-	// MultiAuth demo
-	fmt.Printf("Creating 2-of-3 MultiAuth protection...\n")
-	options := &AdvancedProtectionOptions{
-		MultiAuth: "2-of-3",
-		Signers:   []string{}, // Will generate demo keys automatically
-	}
-	if _, err := applyMultiAuthProtection([]byte(demoContent), demoFile, "./demo_output", options, true); err != nil {
-		return fmt.Errorf("multiAuth demo failed: %v", err)
-	}
-
-	fmt.Printf("\nDEMO 2: TIMELOCK PROTECTION\n")
-	fmt.Printf("------------------------------------------------------\n")
-	// TimeLock demo
-	fmt.Printf("Creating TimeLock protection for 1 hour...\n")
-	options = &AdvancedProtectionOptions{
-		TimeLock:     "+1hours",
-		TimeLockType: "relative",
-	}
-	if _, err := applyTimeLockProtection([]byte(demoContent), demoFile, "./demo_output", options, true); err != nil {
-		return fmt.Errorf("timeLock demo failed: %v", err)
-	}
-
-	fmt.Printf("\nDEMO 3: OWNERSHIP CONTROL\n")
-	fmt.Printf("------------------------------------------------------\n")
-	// Ownership demo
-	fmt.Printf("Creating ownership control with 1M value...\n")
-	options = &AdvancedProtectionOptions{
-		OwnershipMode:  true,
-		OwnershipValue: 1000000,
-		AccessRights:   []string{"read", "write", "execute", "transfer"},
-	}
-	if _, err := applyOwnershipProtection([]byte(demoContent), demoFile, "./demo_output", options, true); err != nil {
-		return fmt.Errorf("ownership demo failed: %v", err)
-	}
-
-	fmt.Printf("\nDEMO 4: POLICY SCRIPT SYSTEM\n")
-	fmt.Printf("------------------------------------------------------\n")
-	// PolicyScript demo
-	fmt.Printf("Creating team-based PolicyScript protection...\n")
-	options = &AdvancedProtectionOptions{
-		PolicyScript: "developers OP_CHECKTEAM",
-		PolicyType:   "team",
-	}
-	if _, err := applyPolicyScriptProtection([]byte(demoContent), demoFile, "./demo_output", options, true); err != nil {
-		return fmt.Errorf("policyScript demo failed: %v", err)
-	}
-
-	fmt.Printf("\nALL ADVANCED FEATURES DEMO COMPLETED SUCCESSFULLY!\n")
-	fmt.Printf("Eden Core is ready for production with advanced security!\n\n")
-
-	// Clean up demo output directory
-	os.RemoveAll("./demo_output")
-
-	return nil
-}
-
 func showSecurityAnalysis() {
 	fmt.Printf("EDEN CORE SECURITY ANALYSIS\n")
 	fmt.Printf("===========================\n\n")
@@ -379,27 +249,6 @@ func showSecurityAnalysis() {
 	fmt.Printf("   [[SUCCESS]] Time-based access control\n")
 	fmt.Printf("   [[SUCCESS]] Multi-party authorization\n")
 	fmt.Printf("   [[SUCCESS]] Network-based verification\n")
-}
-
-func runBenchmark() error {
-	fmt.Printf("EDEN CORE PERFORMANCE BENCHMARK\n")
-	fmt.Printf("================================================================\n\n")
-
-	fmt.Printf("ELLIPTIC CURVE PERFORMANCE (secp256k1)\n")
-	fmt.Printf("   Protection Speed: ~4,000 ops/sec\n")
-	fmt.Printf("   Unprotection Speed: ~3,800 ops/sec\n")
-
-	fmt.Printf("\nZERO TRUST NETWORK PERFORMANCE\n")
-	fmt.Printf("   Record Registration: ~50 ops/sec\n")
-
-	fmt.Printf("\nSUMMARY\n")
-	fmt.Printf("   Algorithm: F = K · G (secp256k1)\n")
-	fmt.Printf("   Security Level: 128-bit (cryptocurrency-grade)\n")
-	fmt.Printf("   Protection Speed: ~4,000 ops/sec\n")
-	fmt.Printf("   Network Speed: ~50 records/sec\n")
-	fmt.Printf("   Status: READY FOR PRODUCTION\n")
-
-	return nil
 }
 
 // Stub implementations for core operations

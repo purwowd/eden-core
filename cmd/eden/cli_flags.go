@@ -46,8 +46,6 @@ type CLIFlags struct {
 	NetworkStats  *bool
 
 	// Utilities
-	Examples  *bool
-	Demo      *bool
 	Security  *bool
 	Benchmark *bool
 }
@@ -97,8 +95,6 @@ func ParseFlags() *CLIFlags {
 		NetworkStats:  flag.Bool("network-stats", false, "Show network statistics"),
 
 		// Utilities
-		Examples:  flag.Bool("examples", false, "Show usage examples"),
-		Demo:      flag.Bool("demo", false, "Run advanced features demo"),
 		Security:  flag.Bool("security", false, "Show security analysis"),
 		Benchmark: flag.Bool("benchmark", false, "Run performance benchmarks"),
 	}

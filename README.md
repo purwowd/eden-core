@@ -177,8 +177,8 @@ eden-run --help                          # Help information
 # Deprotect files
 eden -deprotect -input <protected-file> -keyfile <keyfile> -output <dir>
 
-# Advanced features demo
-eden -demo
+# Show available examples
+eden -examples
 
 # Security analysis
 eden -security
