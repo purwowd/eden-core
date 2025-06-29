@@ -4,10 +4,13 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
+	"github.com/purwowd/eden-core/pkg/monitoring"
 	"golang.org/x/crypto/pbkdf2"
 )
 
@@ -180,4 +183,141 @@ func DeriveKey(password, salt []byte) ([]byte, error) {
 	}
 
 	return pbkdf2.Key(password, salt, Iterations, KeySize, sha256.New), nil
+}
+
+// KeyRotationConfig represents configuration for automatic key rotation
+type KeyRotationConfig struct {
+	RotationInterval time.Duration // How often keys should be rotated
+	RetentionPeriod  time.Duration // How long to keep old keys
+	EmergencyKeys    []string      // Backup keys for emergency access
+	NotifyBefore     time.Duration // Notification period before rotation
+}
+
+// RotateProtectionKey implements secure key rotation
+func RotateProtectionKey(oldKey []byte, config KeyRotationConfig) ([]byte, error) {
+	// Generate new key material
+	newKey := make([]byte, 32)
+	if _, err := rand.Read(newKey); err != nil {
+		return nil, fmt.Errorf("failed to generate new key: %v", err)
+	}
+
+	// Derive new key using both old and new material for security
+	h := sha256.New()
+	h.Write(oldKey)
+	h.Write(newKey)
+	derivedKey := h.Sum(nil)
+
+	// Store key metadata for audit
+	metadata := map[string]interface{}{
+		"rotation_time": time.Now().UTC(),
+		"key_hash":      fmt.Sprintf("%x", sha256.Sum256(derivedKey)),
+		"valid_until":   time.Now().Add(config.RotationInterval),
+	}
+
+	// Log rotation event (implement audit logging)
+	logKeyRotation(metadata)
+
+	return derivedKey, nil
+}
+
+// VerifyKeyRotationPolicy checks if key rotation is needed
+func VerifyKeyRotationPolicy(keyData []byte, config KeyRotationConfig) (bool, error) {
+	// Extract key metadata
+	metadata, err := extractKeyMetadata(keyData)
+	if err != nil {
+		return false, fmt.Errorf("failed to extract key metadata: %v", err)
+	}
+
+	// Check if rotation is needed
+	rotationTimeStr, ok := metadata["rotation_time"].(string)
+	if !ok {
+		return false, fmt.Errorf("invalid rotation_time format in metadata")
+	}
+
+	rotationTime, err := time.Parse(time.RFC3339, rotationTimeStr)
+	if err != nil {
+		return false, fmt.Errorf("invalid rotation time: %v", err)
+	}
+
+	// Calculate time until next rotation
+	nextRotation := rotationTime.Add(config.RotationInterval)
+	timeUntilRotation := time.Until(nextRotation)
+
+	// Check if rotation is needed
+	needsRotation := timeUntilRotation <= 0
+
+	// If approaching rotation time, send notification
+	if timeUntilRotation <= config.NotifyBefore {
+		notifyKeyRotation(metadata)
+	}
+
+	return needsRotation, nil
+}
+
+// logKeyRotation logs key rotation events for audit
+func logKeyRotation(metadata map[string]interface{}) {
+	// TODO: Implement proper audit logging
+	log.Printf("Key rotation event: %+v", metadata)
+}
+
+// extractKeyMetadata extracts metadata from key data
+func extractKeyMetadata(keyData []byte) (map[string]interface{}, error) {
+	// Key format: [32 bytes key][metadata length][metadata json]
+	if len(keyData) < 33 { // At least key + 1 byte length
+		return nil, fmt.Errorf("invalid key data format")
+	}
+
+	metadataLen := int(keyData[32]) // Length byte after key
+	if len(keyData) < 33+metadataLen {
+		return nil, fmt.Errorf("truncated key data")
+	}
+
+	metadata := make(map[string]interface{})
+	if err := json.Unmarshal(keyData[33:33+metadataLen], &metadata); err != nil {
+		return nil, fmt.Errorf("failed to parse key metadata: %v", err)
+	}
+
+	return metadata, nil
+}
+
+// notifyKeyRotation sends notifications about upcoming key rotation
+func notifyKeyRotation(metadata map[string]interface{}) {
+	// Create notification event
+	event := monitoring.AuditEvent{
+		ID:        fmt.Sprintf("KEY-ROT-%d", time.Now().UnixNano()),
+		Type:      monitoring.EventKeyRotation,
+		Timestamp: time.Now().UTC(),
+		Action:    "key_rotation_notification",
+		Resource:  metadata["key_id"].(string),
+		Status:    "pending",
+		Details:   metadata,
+		Risk:      "MEDIUM",
+	}
+
+	// Log notification event
+	if err := monitoring.LogAuditEvent(event); err != nil {
+		log.Printf("Failed to log key rotation notification: %v", err)
+	}
+
+	// Send notification to configured channels
+	if notifyBefore, ok := metadata["notify_before"].(time.Duration); ok {
+		rotationTime := time.Now().Add(notifyBefore)
+		details := fmt.Sprintf("Key rotation scheduled for: %s\nKey ID: %s",
+			rotationTime.Format(time.RFC3339),
+			metadata["key_id"])
+
+		// Send to all emergency contacts
+		if contacts, ok := metadata["emergency_contacts"].([]string); ok {
+			for _, contact := range contacts {
+				sendNotification(contact, "Key Rotation Scheduled", details)
+			}
+		}
+	}
+}
+
+// sendNotification sends a notification to a specific contact
+func sendNotification(contact, subject, details string) {
+	// For now, just log the notification
+	// In production, this would integrate with email/SMS/Slack etc.
+	log.Printf("NOTIFICATION to %s: %s\n%s", contact, subject, details)
 }

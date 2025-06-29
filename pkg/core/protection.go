@@ -1,12 +1,18 @@
 package core
 
 import (
+	"bytes"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"hash"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,6 +71,132 @@ type ProtectionResult struct {
 	KeyPath       string `json:"key_path"`
 	Success       bool   `json:"success"`
 	Message       string `json:"message"`
+}
+
+// TamperDetectionConfig represents configuration for tamper detection
+type TamperDetectionConfig struct {
+	ChecksumAlgorithm string        // Algorithm for checksum (SHA256, SHA512, etc)
+	SignatureKey      []byte        // Key for signing checksums
+	VerifyInterval    time.Duration // How often to verify integrity
+	AlertThreshold    int           // Number of failed checks before alerting
+}
+
+// IntegrityData represents stored integrity verification data
+type IntegrityData struct {
+	Checksum  []byte
+	Signature []byte
+}
+
+// extractIntegrityData extracts integrity verification data from protected code
+func extractIntegrityData(protectedCode []byte) (*IntegrityData, error) {
+	// Format: [protected code][checksum len][checksum][signature len][signature]
+	if len(protectedCode) < 2 { // Minimum length for checksum length
+		return nil, fmt.Errorf("protected code too short")
+	}
+
+	// Read checksum length (last 2 bytes)
+	checksumLen := int(binary.BigEndian.Uint16(protectedCode[len(protectedCode)-2:]))
+	if len(protectedCode) < checksumLen+4 { // +4 for both length fields
+		return nil, fmt.Errorf("invalid checksum length")
+	}
+
+	// Extract signature length
+	sigOffset := len(protectedCode) - checksumLen - 4
+	signatureLen := int(binary.BigEndian.Uint16(protectedCode[sigOffset : sigOffset+2]))
+	if sigOffset < signatureLen {
+		return nil, fmt.Errorf("invalid signature length")
+	}
+
+	// Extract checksum and signature
+	checksumStart := len(protectedCode) - checksumLen - 2
+	signatureStart := sigOffset - signatureLen
+
+	data := &IntegrityData{
+		Checksum:  make([]byte, checksumLen),
+		Signature: make([]byte, signatureLen),
+	}
+
+	copy(data.Checksum, protectedCode[checksumStart:checksumStart+checksumLen])
+	copy(data.Signature, protectedCode[signatureStart:signatureStart+signatureLen])
+
+	return data, nil
+}
+
+// VerifyCodeIntegrity implements advanced tamper detection
+func VerifyCodeIntegrity(protectedCode []byte, config TamperDetectionConfig) (*IntegrityReport, error) {
+	report := &IntegrityReport{
+		TimeStamp:    time.Now().UTC(),
+		ChecksumAlgo: config.ChecksumAlgorithm,
+		Status:       "CHECKING",
+	}
+
+	// Calculate current checksum
+	currentChecksum, err := calculateChecksum(protectedCode, config.ChecksumAlgorithm)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate checksum: %v", err)
+	}
+
+	// Extract stored checksum and signature
+	storedData, err := extractIntegrityData(protectedCode)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract integrity data: %v", err)
+	}
+
+	// Verify checksum signature
+	if err := verifySignature(storedData.Checksum, storedData.Signature, config.SignatureKey); err != nil {
+		report.Status = "INVALID_SIGNATURE"
+		report.Details = fmt.Sprintf("Signature verification failed: %v", err)
+		return report, nil
+	}
+
+	// Compare checksums
+	if !bytes.Equal(currentChecksum, storedData.Checksum) {
+		report.Status = "TAMPERED"
+		report.Details = "Code has been modified"
+		return report, nil
+	}
+
+	report.Status = "VALID"
+	report.Details = "Integrity check passed"
+	return report, nil
+}
+
+// IntegrityReport represents the result of integrity verification
+type IntegrityReport struct {
+	TimeStamp    time.Time
+	ChecksumAlgo string
+	Status       string
+	Details      string
+}
+
+// calculateChecksum generates a checksum using specified algorithm
+func calculateChecksum(data []byte, algorithm string) ([]byte, error) {
+	var hash hash.Hash
+	switch algorithm {
+	case "SHA256":
+		hash = sha256.New()
+	case "SHA512":
+		hash = sha512.New()
+	default:
+		return nil, fmt.Errorf("unsupported checksum algorithm: %s", algorithm)
+	}
+
+	hash.Write(data)
+	return hash.Sum(nil), nil
+}
+
+// verifySignature verifies the signature of a checksum
+func verifySignature(checksum, signature, key []byte) error {
+	// Create HMAC for verification
+	h := hmac.New(sha256.New, key)
+	h.Write(checksum)
+	expectedMAC := h.Sum(nil)
+
+	if !hmac.Equal(signature, expectedMAC) {
+		return errors.New("invalid signature")
+	}
+
+	return nil
 }
 
 // ProtectFile protects a file with specified options
