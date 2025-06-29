@@ -47,15 +47,85 @@ make build
 ### Basic Usage
 
 ```bash
-# Protect a file
+# 1. Protect a file
 ./bin/eden -protect -input app.py -output ./protected
 
-# Run protected file  
+# 2. Run protected file (Two Options Available)
+
+# Option A: Using eden -run (CLI with full control)
 ./bin/eden -run -input protected/files/[file_id].eden
+
+# Option B: Using eden-run (Simplified execution)
+./bin/eden-run protected/files/[file_id].eden
 
 # Show examples
 ./bin/eden -examples
 ```
+
+### Running Protected Applications
+
+Eden Core provides **two ways** to execute protected applications:
+
+#### **Method 1: `eden -run` (CLI Interface)**
+```bash
+# Basic execution
+eden -run -input myapp.eden
+
+# With verbose output for debugging
+eden -run -input myapp.eden -verbose
+
+# Silent mode (no banner)
+eden -run -input myapp.eden -quiet
+```
+
+#### **Method 2: `eden-run` (Simplified Execution)**
+```bash
+# Direct execution (most convenient)
+eden-run myapp.eden
+
+# Silent mode
+eden-run -q myapp.eden
+
+# Get help
+eden-run --help
+```
+
+#### **When to Use Which?**
+
+| Scenario | Recommended | Reason |
+|----------|-------------|---------|
+| **Development & Debugging** | `eden -run` | More control and verbose options |
+| **Production Deployment** | `eden-run` | Cleaner, simpler syntax |
+| **CI/CD Pipelines** | `eden-run` | Less complex command structure |
+| **System Integration** | `eden-run` | Can be installed system-wide |
+
+#### **System-wide Installation**
+```bash
+# Install eden-run globally for easier access
+make install-runner
+
+# Now you can run .eden files from anywhere
+eden-run /path/to/any/protected/app.eden
+```
+
+### Understanding Protection Output
+
+When you protect a file, Eden Core generates a unique structure:
+
+```bash
+# Protect a file
+eden -protect -input app.py -output ./protected
+
+# Expected output:
+# Protected file stored: ./protected/files/a1b2c3d4e5f6.eden
+# Key file stored: ./protected/keys/a1b2c3d4e5f6.key
+# File ID: a1b2c3d4e5f6
+```
+
+The protection process creates:
+- **Protected file**: `./protected/files/[file_id].eden` - Encrypted source code
+- **Key file**: `./protected/keys/[file_id].key` - Cryptographic keys
+- **File ID**: `[file_id]` - Unique identifier for the protected file
 
 ### Complete Documentation
 
@@ -71,18 +141,66 @@ make build
 
 ## Command Line Interface
 
-### Basic Commands
+### Protection Commands
 
 ```bash
-# Protection
+# Basic protection
 eden -protect -input <file> -output <dir>
 
-# Execution
-eden -run -input <protected-file>
-
-# Advanced protection
+# Advanced protection with MultiAuth
 eden -protect -input <file> -multiauth '2-of-3' -signers 'key1,key2,key3'
+
+# Time-locked protection
 eden -protect -input <file> -timelock '+24h'
+
+# Ownership-based protection
+eden -protect -input <file> -ownership-mode -ownership-value 1000000
+```
+
+### Execution Commands
+
+```bash
+# Method 1: Full CLI control
+eden -run -input <protected-file.eden>
+eden -run -input <protected-file.eden> -verbose
+eden -run -input <protected-file.eden> -quiet
+
+# Method 2: Simplified execution  
+eden-run <protected-file.eden>
+eden-run -q <protected-file.eden>        # Quiet mode
+eden-run --help                          # Help information
+```
+
+### Management Commands
+
+```bash
+# Deprotect files
+eden -deprotect -input <protected-file> -keyfile <keyfile> -output <dir>
+
+# Advanced features demo
+eden -demo
+
+# Security analysis
+eden -security
+
+# Performance benchmarks
+eden -benchmark
+```
+
+### Practical Examples
+
+```bash
+# Complete workflow example
+eden -protect -input webapp.py -output ./secure/
+eden-run secure/files/abc123def.eden
+
+# Advanced security workflow
+eden -protect -input critical-app.py -multiauth '2-of-3' -timelock '+7days'
+eden -run -input protected/files/xyz789.eden -verbose
+
+# Production deployment
+eden -protect -input production-app.py -output /opt/secure/
+sudo eden-run /opt/secure/files/production.eden
 ```
 
 ---

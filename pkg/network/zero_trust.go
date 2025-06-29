@@ -189,6 +189,9 @@ func (ztn *ZeroTrustNetwork) DistributeToNetwork(record *ProtectedCodeRecord) er
 
 // JoinNetwork joins the zero trust network as a peer
 func (ztn *ZeroTrustNetwork) JoinNetwork(bootstrapNodes []string) error {
+	// Generate node ID from public key
+	ztn.nodeID = generateNodeID(ztn.ellipticCrypto.GetPublicKeyHex())
+
 	fmt.Printf("Joining zero trust network...\n")
 	fmt.Printf("   Node ID: %s\n", ztn.nodeID)
 	fmt.Printf("   Public Key: %s...\n", ztn.ellipticCrypto.GetPublicKeyHex()[:16])
@@ -343,9 +346,8 @@ func (ztn *ZeroTrustNetwork) Authenticate(username, password string) (string, er
 
 // Authorize checks if a token is valid for accessing a domain
 func (ztn *ZeroTrustNetwork) Authorize(token, domain string) (bool, error) {
-	// Check token existence and expiry
-	expiry, exists := ztn.tokens[token]
-	if !exists || time.Now().After(expiry) {
+	// Check token validity
+	if !ztn.isValidToken(token) {
 		return false, nil
 	}
 
