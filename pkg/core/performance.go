@@ -1,10 +1,14 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,6 +22,9 @@ type PerformanceOptions struct {
 	ParallelDecrypt bool   `json:"parallel_decrypt"`
 	CacheDirectory  string `json:"cache_directory"`
 	JITWarmupTime   int    `json:"jit_warmup_time"`
+	MaxWorkers      int    `json:"max_workers"`
+	MaxMemoryMB     int    `json:"max_memory_mb"`
+	CleanupInterval int    `json:"cleanup_interval"`
 }
 
 // PerformanceEngine handles performance optimizations for protected code
@@ -25,6 +32,7 @@ type PerformanceEngine struct {
 	options    PerformanceOptions
 	cacheDir   string
 	statsCache map[string]*ExecutionStats
+	memManager *MemoryManager
 }
 
 // ExecutionStats tracks performance metrics
@@ -37,10 +45,48 @@ type ExecutionStats struct {
 	OverheadPercent float64       `json:"overhead_percent"`
 }
 
+// MemoryManager handles memory optimization
+type MemoryManager struct {
+	maxMemoryMB     int
+	cleanupInterval int
+	lastCleanup     time.Time
+	mu              sync.RWMutex
+	allocatedFiles  map[string]time.Time
+}
+
+// DefaultPerformanceOptions returns optimized default settings
+func DefaultPerformanceOptions() PerformanceOptions {
+	return PerformanceOptions{
+		UseCython:       true,
+		PrecompileCache: true,
+		InMemoryExec:    true,
+		ParallelDecrypt: true,
+		MaxWorkers:      runtime.NumCPU(),
+		MaxMemoryMB:     4096, // 4GB default
+		CleanupInterval: 30,   // 30 minutes
+		JITWarmupTime:   1000, // 1 second warmup
+		CacheDirectory:  "/tmp/eden_performance_cache",
+	}
+}
+
 // NewPerformanceEngine creates a new performance optimization engine
 func NewPerformanceEngine(options PerformanceOptions) *PerformanceEngine {
+	// Use default options if not specified
+	if options.MaxWorkers <= 0 {
+		defaultOpts := DefaultPerformanceOptions()
+		options.MaxWorkers = defaultOpts.MaxWorkers
+	}
+	if options.MaxMemoryMB <= 0 {
+		defaultOpts := DefaultPerformanceOptions()
+		options.MaxMemoryMB = defaultOpts.MaxMemoryMB
+	}
+	if options.CleanupInterval <= 0 {
+		defaultOpts := DefaultPerformanceOptions()
+		options.CleanupInterval = defaultOpts.CleanupInterval
+	}
 	if options.CacheDirectory == "" {
-		options.CacheDirectory = "/tmp/eden_performance_cache"
+		defaultOpts := DefaultPerformanceOptions()
+		options.CacheDirectory = defaultOpts.CacheDirectory
 	}
 
 	// Ensure cache directory exists
@@ -50,15 +96,186 @@ func NewPerformanceEngine(options PerformanceOptions) *PerformanceEngine {
 		options:    options,
 		cacheDir:   options.CacheDirectory,
 		statsCache: make(map[string]*ExecutionStats),
+		memManager: NewMemoryManager(options.MaxMemoryMB, options.CleanupInterval),
+	}
+}
+
+// NewMemoryManager creates a new memory manager
+func NewMemoryManager(maxMemoryMB, cleanupInterval int) *MemoryManager {
+	return &MemoryManager{
+		maxMemoryMB:     maxMemoryMB,
+		cleanupInterval: cleanupInterval,
+		lastCleanup:     time.Now(),
+		allocatedFiles:  make(map[string]time.Time),
 	}
 }
 
 // OptimizePythonExecution optimizes Python code execution using various techniques
 func (pe *PerformanceEngine) OptimizePythonExecution(sourceFile string) error {
-	if pe.options.UseCython {
-		return optimizePythonWithCython(sourceFile, pe.cacheDir)
+	// Initialize memory manager if needed
+	if pe.memManager == nil {
+		pe.memManager = NewMemoryManager(
+			pe.options.MaxMemoryMB,
+			pe.options.CleanupInterval,
+		)
 	}
+
+	// Check and cleanup memory if needed
+	if err := pe.memManager.CheckMemory(); err != nil {
+		return fmt.Errorf("memory check failed: %w", err)
+	}
+
+	// Track file allocation
+	pe.memManager.TrackFile(sourceFile)
+
+	// Check cache first
+	cacheKey := fmt.Sprintf("python_%s", filepath.Base(sourceFile))
+	if pe.options.PrecompileCache {
+		if cached := pe.loadFromCache(cacheKey); cached != nil {
+			return pe.executeFromCache(cached)
+		}
+	}
+
+	var err error
+	if pe.options.UseCython {
+		err = pe.optimizeWithCython(sourceFile)
+		if err == nil {
+			// Cache successful compilation
+			if pe.options.PrecompileCache {
+				pe.saveToCache(cacheKey, sourceFile)
+			}
+			return nil
+		}
+		// Log Cython failure but continue to PyPy
+		fmt.Printf("Cython optimization failed: %v, falling back to PyPy\n", err)
+	}
+
 	return pe.optimizeWithPyPy(sourceFile)
+}
+
+// loadFromCache attempts to load cached optimization
+func (pe *PerformanceEngine) loadFromCache(cacheKey string) *CachedOptimization {
+	cachePath := filepath.Join(pe.cacheDir, cacheKey+".cache")
+	data, err := os.ReadFile(cachePath)
+	if err != nil {
+		return nil
+	}
+
+	var cached CachedOptimization
+	if err := json.Unmarshal(data, &cached); err != nil {
+		return nil
+	}
+
+	// Verify cache is still valid
+	if time.Since(cached.CreatedAt) > 24*time.Hour {
+		return nil
+	}
+
+	return &cached
+}
+
+// saveToCache saves successful optimization to cache
+func (pe *PerformanceEngine) saveToCache(cacheKey, sourceFile string) {
+	cached := CachedOptimization{
+		SourceFile: sourceFile,
+		CreatedAt:  time.Now(),
+		Options:    pe.options,
+	}
+
+	data, err := json.Marshal(cached)
+	if err != nil {
+		return
+	}
+
+	cachePath := filepath.Join(pe.cacheDir, cacheKey+".cache")
+	os.WriteFile(cachePath, data, 0644)
+}
+
+// CachedOptimization represents cached optimization data
+type CachedOptimization struct {
+	SourceFile string             `json:"source_file"`
+	CreatedAt  time.Time          `json:"created_at"`
+	Options    PerformanceOptions `json:"options"`
+}
+
+// executeFromCache executes optimized code from cache
+func (pe *PerformanceEngine) executeFromCache(cached *CachedOptimization) error {
+	fmt.Printf("Using cached optimization for %s\n", cached.SourceFile)
+
+	// Execute with appropriate runtime
+	if cached.Options.UseCython {
+		return pe.executeCythonizedCode(cached.SourceFile)
+	}
+	return pe.optimizeWithPyPy(cached.SourceFile)
+}
+
+// optimizeWithCython optimizes Python code using Cython
+func (pe *PerformanceEngine) optimizeWithCython(sourceFile string) error {
+	setupPyContent := fmt.Sprintf(`
+from setuptools import setup
+from Cython.Build import cythonize
+
+setup(
+    ext_modules=cythonize(
+        "%s",
+        compiler_directives={
+            'language_level': "3",
+            'boundscheck': False,
+            'wraparound': False,
+            'initializedcheck': False,
+            'nonecheck': False,
+        },
+        quiet=True,
+    )
+)`, filepath.Base(sourceFile))
+
+	// Create setup.py in cache directory
+	setupPyPath := filepath.Join(pe.cacheDir, "setup.py")
+	if err := os.WriteFile(setupPyPath, []byte(setupPyContent), 0644); err != nil {
+		return fmt.Errorf("failed to create setup.py: %w", err)
+	}
+
+	// Copy source file to cache directory
+	destPath := filepath.Join(pe.cacheDir, filepath.Base(sourceFile))
+	input, err := os.ReadFile(sourceFile)
+	if err != nil {
+		return fmt.Errorf("failed to read source file: %w", err)
+	}
+	if err := os.WriteFile(destPath, input, 0644); err != nil {
+		return fmt.Errorf("failed to write source file: %w", err)
+	}
+
+	// Run Cython compilation
+	cmd := exec.Command("python", "setup.py", "build_ext", "--inplace")
+	cmd.Dir = pe.cacheDir
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("cython compilation failed: %w", err)
+	}
+
+	return nil
+}
+
+// executeCythonizedCode executes Cython-compiled code
+func (pe *PerformanceEngine) executeCythonizedCode(sourceFile string) error {
+	compiledPath := filepath.Join(pe.cacheDir, filepath.Base(sourceFile)+".so")
+
+	// Verify compiled file exists
+	if _, err := os.Stat(compiledPath); err != nil {
+		return fmt.Errorf("compiled file not found: %w", err)
+	}
+
+	// Import and execute compiled module
+	cmd := exec.Command("python3", "-c", fmt.Sprintf(`
+import sys
+sys.path.append("%s")
+import %s
+`, pe.cacheDir, strings.TrimSuffix(filepath.Base(sourceFile), ".py")))
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	return cmd.Run()
 }
 
 // optimizeWithPyPy uses PyPy JIT for faster execution
@@ -284,4 +501,97 @@ setup(
 	}
 
 	return nil
+}
+
+// OptimizePythonBatch optimizes multiple Python files in parallel
+func (pe *PerformanceEngine) OptimizePythonBatch(sourceFiles []string) error {
+	if pe.options.MaxWorkers <= 0 {
+		pe.options.MaxWorkers = runtime.NumCPU()
+	}
+
+	// Create worker pool
+	workerCount := min(pe.options.MaxWorkers, len(sourceFiles))
+	jobs := make(chan string, len(sourceFiles))
+	results := make(chan error, len(sourceFiles))
+
+	// Start workers
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for sourceFile := range jobs {
+				results <- pe.OptimizePythonExecution(sourceFile)
+			}
+		}()
+	}
+
+	// Send jobs
+	for _, file := range sourceFiles {
+		jobs <- file
+	}
+	close(jobs)
+
+	// Wait for all workers
+	wg.Wait()
+	close(results)
+
+	// Check results
+	var errors []error
+	for err := range results {
+		if err != nil {
+			errors = append(errors, err)
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("batch optimization failed with %d errors: %v", len(errors), errors)
+	}
+
+	return nil
+}
+
+// CheckMemory checks and manages memory usage
+func (mm *MemoryManager) CheckMemory() error {
+	mm.mu.Lock()
+	defer mm.mu.Unlock()
+
+	// Check if cleanup is needed
+	if time.Since(mm.lastCleanup).Minutes() < float64(mm.cleanupInterval) {
+		return nil
+	}
+
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	// Convert to MB
+	usedMemoryMB := int(m.Alloc / 1024 / 1024)
+
+	if usedMemoryMB > mm.maxMemoryMB {
+		// Trigger cleanup
+		runtime.GC()
+		mm.cleanupOldFiles()
+	}
+
+	mm.lastCleanup = time.Now()
+	return nil
+}
+
+// TrackFile tracks file allocation
+func (mm *MemoryManager) TrackFile(file string) {
+	mm.mu.Lock()
+	defer mm.mu.Unlock()
+	mm.allocatedFiles[file] = time.Now()
+}
+
+// cleanupOldFiles removes old cached files
+func (mm *MemoryManager) cleanupOldFiles() {
+	threshold := time.Now().Add(-time.Hour) // Keep files younger than 1 hour
+
+	for file, timestamp := range mm.allocatedFiles {
+		if timestamp.Before(threshold) {
+			os.Remove(file)
+			delete(mm.allocatedFiles, file)
+		}
+	}
 }
