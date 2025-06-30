@@ -19,8 +19,8 @@ type Validator struct {
 }
 
 // NewValidator creates a new validator with configuration
-func NewValidator(config *Config) *Validator {
-	return &Validator{config: config}
+func NewValidator(cfg *Config) *Validator {
+	return &Validator{config: cfg}
 }
 
 // ValidationError represents a validation error

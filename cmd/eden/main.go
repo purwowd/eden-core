@@ -13,9 +13,11 @@ import (
 	"github.com/purwowd/eden-core/pkg/core"
 )
 
+// Version holds the current version of Eden Core
+var Version = "v2.0.0"
+
 const (
-	Version = "1.0.0"
-	Banner  = `
+	Banner = `
 ███████╗██████╗ ███████╗███╗   ██╗     ██████╗ ██████╗ ██████╗ ███████╗
 ██╔════╝██╔══██╗██╔════╝████╗  ██║    ██╔════╝██╔═══██╗██╔══██╗██╔════╝
 █████╗  ██║  ██║█████╗  ██╔██╗ ██║    ██║     ██║   ██║██████╔╝█████╗  

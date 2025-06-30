@@ -231,11 +231,9 @@ setTimeout(() => {
 func TestPerformanceEngineIntegration(t *testing.T) {
 	// Test performance options creation
 	options := core.PerformanceOptions{
-		UseCython:       true,
-		UsePHPOPcache:   true,
-		UseNodeJIT:      true,
+		UsePyPyJIT:      true,
 		PrecompileCache: true,
-		CacheDirectory:  "/tmp/eden_test_perf_cache",
+		CacheDirectory:  "/tmp/eden_test_cache",
 	}
 
 	// Create performance engine
@@ -243,14 +241,12 @@ func TestPerformanceEngineIntegration(t *testing.T) {
 	assert.NotNil(t, perfEngine)
 
 	// Test that options are stored correctly
-	assert.True(t, options.UseCython)
-	assert.True(t, options.UsePHPOPcache)
-	assert.True(t, options.UseNodeJIT)
+	assert.True(t, options.UsePyPyJIT)
 	assert.True(t, options.PrecompileCache)
-	assert.Equal(t, "/tmp/eden_test_perf_cache", options.CacheDirectory)
+	assert.Equal(t, "/tmp/eden_test_cache", options.CacheDirectory)
 
 	// Clean up
-	os.RemoveAll("/tmp/eden_test_perf_cache")
+	os.RemoveAll("/tmp/eden_test_cache")
 }
 
 // TestProtectionWithPerformanceOptimization tests complete protection flow with optimization
@@ -334,30 +330,24 @@ func TestPerformanceOptionsValidation(t *testing.T) {
 		{
 			name: "all_optimizations_enabled",
 			options: core.PerformanceOptions{
-				UseCython:       true,
-				UsePHPOPcache:   true,
-				UseNodeJIT:      true,
+				UsePyPyJIT:      true,
 				PrecompileCache: true,
-				InMemoryExec:    false,
-				ParallelDecrypt: true,
 				CacheDirectory:  "/tmp/cache",
-				JITWarmupTime:   1000,
 			},
 			valid: true,
 		},
 		{
 			name: "minimal_optimizations",
 			options: core.PerformanceOptions{
-				UseCython:     false,
-				UsePHPOPcache: false,
-				UseNodeJIT:    false,
+				UsePyPyJIT:      false,
+				PrecompileCache: false,
 			},
 			valid: true,
 		},
 		{
 			name: "custom_cache_directory",
 			options: core.PerformanceOptions{
-				UseCython:      true,
+				UsePyPyJIT:     true,
 				CacheDirectory: "/custom/cache/path",
 			},
 			valid: true,
@@ -435,9 +425,7 @@ func BenchmarkProtectionEngineCreation(b *testing.B) {
 // BenchmarkPerformanceEngineCreation benchmarks performance engine creation
 func BenchmarkPerformanceEngineCreation(b *testing.B) {
 	options := core.PerformanceOptions{
-		UseCython:       true,
-		UsePHPOPcache:   true,
-		UseNodeJIT:      true,
+		UsePyPyJIT:      true,
 		PrecompileCache: true,
 		CacheDirectory:  "/tmp/eden_bench_cache",
 	}

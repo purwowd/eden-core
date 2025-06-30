@@ -125,7 +125,7 @@ func NewBenchmarkSuite() (*BenchmarkSuite, error) {
 				Architecture: runtime.GOARCH,
 				NumCPU:       runtime.NumCPU(),
 				GoVersion:    runtime.Version(),
-				EdenVersion:  Version,
+				EdenVersion:  "v2.0.0",
 			},
 		},
 	}, nil

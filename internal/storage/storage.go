@@ -198,19 +198,42 @@ func (m *Manager) GetFile(id string) (*ProtectedFile, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
+	// Try exact ID first
 	pf, exists := m.index[id]
-	if !exists {
-		return nil, fmt.Errorf("file not found: %s", id)
+	if exists {
+		return pf, nil
 	}
 
-	return pf, nil
+	// Try with and without .eden extension
+	var tryIDs []string
+	if strings.HasSuffix(id, ".eden") {
+		tryIDs = append(tryIDs, strings.TrimSuffix(id, ".eden"))
+	} else {
+		tryIDs = append(tryIDs, id+".eden")
+	}
+
+	for _, tryID := range tryIDs {
+		if pf, exists := m.index[tryID]; exists {
+			return pf, nil
+		}
+	}
+
+	return nil, fmt.Errorf("file not found: %s", id)
 }
 
 // LoadProtectedData loads the protected file data
 func (m *Manager) LoadProtectedData(id string) ([]byte, error) {
 	pf, err := m.GetFile(id)
 	if err != nil {
-		return nil, err
+		// Try adding .eden extension if not found
+		if !strings.HasSuffix(id, ".eden") {
+			pf, err = m.GetFile(id + ".eden")
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
 	}
 
 	data, err := os.ReadFile(pf.ProtectedPath)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -12,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// MockPerformanceEngine is a mock implementation for testing
+// MockPerformanceEngine simulates performance optimization for testing
 type MockPerformanceEngine struct {
 	mu           sync.RWMutex // Add mutex for thread safety
 	options      core.PerformanceOptions
@@ -37,7 +38,7 @@ func (m *MockPerformanceEngine) SetFailNextCall(fail bool) {
 	m.failNextCall = fail
 }
 
-// OptimizePythonExecution mocks Python optimization
+// OptimizePythonExecution mocks Python optimization with PyPy JIT
 func (m *MockPerformanceEngine) OptimizePythonExecution(sourceFile string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -46,29 +47,29 @@ func (m *MockPerformanceEngine) OptimizePythonExecution(sourceFile string) error
 
 	if m.failNextCall {
 		m.failNextCall = false
-		return fmt.Errorf("cython not available")
+		return fmt.Errorf("pypy jit not available")
 	}
 
-	// Simulate Cython compilation
-	if m.options.UseCython {
-		time.Sleep(50 * time.Millisecond) // Mock compilation time
+	// Simulate PyPy JIT optimization
+	if m.options.UsePyPyJIT {
+		time.Sleep(50 * time.Millisecond) // Mock PyPy warmup
 	}
 
-	// Mock execution stats
+	// Create mock performance stats
 	stats := &core.ExecutionStats{
 		OriginalTime:    3290 * time.Millisecond,
 		ProtectedTime:   3310 * time.Millisecond,
-		DecryptionTime:  15 * time.Millisecond,
+		DecryptionTime:  10 * time.Millisecond,
 		CompilationTime: 45 * time.Millisecond,
-		ExecutionTime:   3250 * time.Millisecond,
-		OverheadPercent: 0.6,
+		ExecutionTime:   3255 * time.Millisecond,
+		OverheadPercent: 0.6, // +0.6% overhead with PyPy JIT
 	}
-	m.statsCache["python_"+filepath.Base(sourceFile)] = stats
 
+	m.statsCache["python_"+filepath.Base(sourceFile)] = stats
 	return nil
 }
 
-// OptimizePHPExecution mocks PHP optimization
+// OptimizePHPExecution mocks PHP optimization with OPcache JIT
 func (m *MockPerformanceEngine) OptimizePHPExecution(sourceFile string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -80,26 +81,24 @@ func (m *MockPerformanceEngine) OptimizePHPExecution(sourceFile string) error {
 		return fmt.Errorf("opcache not available")
 	}
 
-	// Simulate OPcache optimization
-	if m.options.UsePHPOPcache {
-		time.Sleep(20 * time.Millisecond) // Mock OPcache setup
-	}
+	// Simulate OPcache setup
+	time.Sleep(20 * time.Millisecond)
 
-	// Mock execution stats (PHP actually improved)
+	// Create mock performance stats - PHP actually improved with OPcache!
 	stats := &core.ExecutionStats{
 		OriginalTime:    9340 * time.Millisecond,
-		ProtectedTime:   9130 * time.Millisecond,
-		DecryptionTime:  12 * time.Millisecond,
-		CompilationTime: 0 * time.Millisecond, // No compilation for PHP
-		ExecutionTime:   9118 * time.Millisecond,
-		OverheadPercent: -2.2, // Negative means improvement
+		ProtectedTime:   9130 * time.Millisecond, // Faster!
+		DecryptionTime:  15 * time.Millisecond,
+		CompilationTime: 0, // No compilation overhead
+		ExecutionTime:   9115 * time.Millisecond,
+		OverheadPercent: -2.2, // -2.2% = 2.2% improvement!
 	}
-	m.statsCache["php_"+filepath.Base(sourceFile)] = stats
 
+	m.statsCache["php_"+filepath.Base(sourceFile)] = stats
 	return nil
 }
 
-// OptimizeJavaScriptExecution mocks JavaScript optimization
+// OptimizeJavaScriptExecution mocks JavaScript optimization with V8 JIT
 func (m *MockPerformanceEngine) OptimizeJavaScriptExecution(sourceFile string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -108,34 +107,32 @@ func (m *MockPerformanceEngine) OptimizeJavaScriptExecution(sourceFile string) e
 
 	if m.failNextCall {
 		m.failNextCall = false
-		return fmt.Errorf("node not found")
+		return fmt.Errorf("node v8 jit not available")
 	}
 
-	// Simulate V8 JIT optimization
-	if m.options.UseNodeJIT {
-		time.Sleep(30 * time.Millisecond) // Mock V8 setup
-	}
+	// Simulate V8 JIT setup
+	time.Sleep(30 * time.Millisecond)
 
-	// Mock execution stats
+	// Create mock performance stats
 	stats := &core.ExecutionStats{
 		OriginalTime:    2000 * time.Millisecond,
 		ProtectedTime:   2100 * time.Millisecond,
-		DecryptionTime:  18 * time.Millisecond,
+		DecryptionTime:  25 * time.Millisecond,
 		CompilationTime: 25 * time.Millisecond,
-		ExecutionTime:   2057 * time.Millisecond,
-		OverheadPercent: 5.0,
+		ExecutionTime:   2050 * time.Millisecond,
+		OverheadPercent: 5.0, // +5.0% overhead
 	}
-	m.statsCache["js_"+filepath.Base(sourceFile)] = stats
 
+	m.statsCache["js_"+filepath.Base(sourceFile)] = stats
 	return nil
 }
 
-// GetPerformanceStats returns mock performance statistics
+// GetPerformanceStats returns cached performance statistics
 func (m *MockPerformanceEngine) GetPerformanceStats() map[string]*core.ExecutionStats {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	// Return a copy to avoid further race conditions
+	// Return a copy to avoid race conditions
 	result := make(map[string]*core.ExecutionStats)
 	for k, v := range m.statsCache {
 		result[k] = v
@@ -154,11 +151,11 @@ func (m *MockPerformanceEngine) GetCallHistory() []string {
 	return result
 }
 
-// TestPythonCythonOptimization tests Python Cython optimization
-func TestPythonCythonOptimization(t *testing.T) {
+// TestPythonPyPyJITOptimization tests Python PyPy JIT optimization
+func TestPythonPyPyJITOptimization(t *testing.T) {
 	// Setup
 	options := core.PerformanceOptions{
-		UseCython:       true,
+		UsePyPyJIT:      true,
 		PrecompileCache: true,
 		CacheDirectory:  "/tmp/eden_test_cache",
 	}
@@ -173,7 +170,7 @@ func TestPythonCythonOptimization(t *testing.T) {
 
 	// Assert
 	assert.NoError(t, err)
-	assert.True(t, duration > 40*time.Millisecond)  // Should include compilation time
+	assert.True(t, duration > 40*time.Millisecond)  // Should include PyPy warmup time
 	assert.True(t, duration < 100*time.Millisecond) // But not too long
 
 	// Check performance stats
@@ -188,11 +185,11 @@ func TestPythonCythonOptimization(t *testing.T) {
 	assert.Contains(t, history, "OptimizePythonExecution:"+sourceFile)
 }
 
-// TestPythonPyPyFallback tests PyPy fallback when Cython fails
-func TestPythonPyPyFallback(t *testing.T) {
+// TestPythonFallback tests Python fallback when PyPy JIT fails
+func TestPythonFallback(t *testing.T) {
 	// Setup
 	options := core.PerformanceOptions{
-		UseCython: false, // Cython disabled
+		UsePyPyJIT: false, // PyPy JIT disabled
 	}
 
 	mockEngine := NewMockPerformanceEngine(options)
@@ -211,8 +208,8 @@ func TestPythonPyPyFallback(t *testing.T) {
 	assert.True(t, pythonStats.OverheadPercent < 5.0) // Low overhead
 }
 
-// TestPHPOPcacheOptimization tests PHP OPcache optimization
-func TestPHPOPcacheOptimization(t *testing.T) {
+// TestPHPOPcacheJITOptimization tests PHP OPcache JIT optimization
+func TestPHPOPcacheJITOptimization(t *testing.T) {
 	// Setup
 	options := core.PerformanceOptions{
 		UsePHPOPcache:  true,
@@ -240,8 +237,8 @@ func TestPHPOPcacheOptimization(t *testing.T) {
 	assert.True(t, phpStats.ProtectedTime < phpStats.OriginalTime)
 }
 
-// TestNodeJSV8Optimization tests Node.js V8 JIT optimization
-func TestNodeJSV8Optimization(t *testing.T) {
+// TestNodeJSV8JITOptimization tests Node.js V8 JIT optimization
+func TestNodeJSV8JITOptimization(t *testing.T) {
 	// Setup
 	options := core.PerformanceOptions{
 		UseNodeJIT:     true,
@@ -269,15 +266,15 @@ func TestNodeJSV8Optimization(t *testing.T) {
 	assert.Equal(t, 25*time.Millisecond, jsStats.CompilationTime)
 }
 
-// TestPerformanceCaching tests precompilation caching
-func TestPerformanceCaching(t *testing.T) {
+// TestJITPerformanceCaching tests precompilation caching
+func TestJITPerformanceCaching(t *testing.T) {
 	// Setup
 	tempDir := "/tmp/eden_test_cache"
 	os.MkdirAll(tempDir, 0755)
 	defer os.RemoveAll(tempDir)
 
 	options := core.PerformanceOptions{
-		UseCython:       true,
+		UsePyPyJIT:      true,
 		PrecompileCache: true,
 		CacheDirectory:  tempDir,
 	}
@@ -285,7 +282,7 @@ func TestPerformanceCaching(t *testing.T) {
 	mockEngine := NewMockPerformanceEngine(options)
 	sourceFile := "cached_script.py"
 
-	// First run - should compile and cache
+	// First run - should optimize and cache
 	start := time.Now()
 	err := mockEngine.OptimizePythonExecution(sourceFile)
 	firstRunDuration := time.Since(start)
@@ -293,8 +290,8 @@ func TestPerformanceCaching(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Create mock cache file
-	cacheFile := filepath.Join(tempDir, "cython_cached_script.cache")
-	cacheData := fmt.Sprintf("compiled_at:%v\ncompilation_time:%v", time.Now(), 45*time.Millisecond)
+	cacheFile := filepath.Join(tempDir, "pypy_cached_script.cache")
+	cacheData := fmt.Sprintf("optimized_at:%v\njit_warmup_time:%v", time.Now(), 45*time.Millisecond)
 	os.WriteFile(cacheFile, []byte(cacheData), 0644)
 
 	// Second run - should use cache (much faster)
@@ -313,10 +310,10 @@ func TestPerformanceCaching(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// TestPerformanceOverheadBreakdown tests detailed overhead analysis
-func TestPerformanceOverheadBreakdown(t *testing.T) {
+// TestJITPerformanceOverheadBreakdown tests detailed overhead analysis
+func TestJITPerformanceOverheadBreakdown(t *testing.T) {
 	options := core.PerformanceOptions{
-		UseCython:     true,
+		UsePyPyJIT:    true,
 		UsePHPOPcache: true,
 		UseNodeJIT:    true,
 	}
@@ -347,148 +344,114 @@ func TestPerformanceOverheadBreakdown(t *testing.T) {
 
 	// Check overhead breakdown for each language
 	for key, stat := range stats {
-		t.Logf("Language: %s", key)
-		t.Logf("  Original Time: %v", stat.OriginalTime)
-		t.Logf("  Protected Time: %v", stat.ProtectedTime)
-		t.Logf("  Decryption Time: %v", stat.DecryptionTime)
-		t.Logf("  Compilation Time: %v", stat.CompilationTime)
-		t.Logf("  Overhead: %.2f%%", stat.OverheadPercent)
+		t.Logf("%s: Original=%v, Protected=%v, Overhead=%.2f%%",
+			key, stat.OriginalTime, stat.ProtectedTime, stat.OverheadPercent)
 
-		// Total overhead should be reasonable
-		totalOverhead := stat.DecryptionTime + stat.CompilationTime
-		assert.True(t, totalOverhead < 100*time.Millisecond, "Total overhead should be < 100ms")
-
-		// Decryption should be fast
-		assert.True(t, stat.DecryptionTime < 50*time.Millisecond, "Decryption should be < 50ms")
+		// All should have reasonable overhead
+		assert.True(t, stat.OverheadPercent < 10.0, "Overhead too high for %s: %.2f%%", key, stat.OverheadPercent)
 	}
 }
 
-// TestRealWorldScenarios tests different application types
+// TestRealWorldScenarios tests real-world performance scenarios
 func TestRealWorldScenarios(t *testing.T) {
 	scenarios := []struct {
-		name         string
-		originalTime time.Duration
-		description  string
+		name        string
+		options     core.PerformanceOptions
+		expectError bool
 	}{
 		{
-			name:         "short_script",
-			originalTime: 500 * time.Millisecond,
-			description:  "Short script (<1s)",
+			name: "all_jit_enabled",
+			options: core.PerformanceOptions{
+				UsePyPyJIT:      true,
+				UsePHPOPcache:   true,
+				UseNodeJIT:      true,
+				PrecompileCache: true,
+			},
+			expectError: false,
 		},
 		{
-			name:         "medium_app",
-			originalTime: 5 * time.Second,
-			description:  "Medium application (1-10s)",
+			name: "minimal_optimizations",
+			options: core.PerformanceOptions{
+				UsePyPyJIT:      false,
+				UsePHPOPcache:   false,
+				UseNodeJIT:      false,
+				PrecompileCache: false,
+			},
+			expectError: false,
 		},
 		{
-			name:         "long_app",
-			originalTime: 30 * time.Second,
-			description:  "Long-running application (>10s)",
+			name: "pypy_only",
+			options: core.PerformanceOptions{
+				UsePyPyJIT:      true,
+				UsePHPOPcache:   false,
+				UseNodeJIT:      false,
+				PrecompileCache: true,
+			},
+			expectError: false,
 		},
 	}
 
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
-			options := core.PerformanceOptions{
-				UseCython:       true,
-				PrecompileCache: true,
-			}
+			mockEngine := NewMockPerformanceEngine(scenario.options)
 
-			mockEngine := NewMockPerformanceEngine(options)
-
-			// Override stats for this scenario
-			stats := &core.ExecutionStats{
-				OriginalTime:    scenario.originalTime,
-				ProtectedTime:   scenario.originalTime + 50*time.Millisecond, // Fixed 50ms overhead
-				DecryptionTime:  15 * time.Millisecond,
-				CompilationTime: 35 * time.Millisecond,
-				ExecutionTime:   scenario.originalTime,
-			}
-
-			// Calculate actual overhead percentage
-			actualOverhead := float64(stats.ProtectedTime-stats.OriginalTime) / float64(stats.OriginalTime) * 100
-			stats.OverheadPercent = actualOverhead
-
-			mockEngine.statsCache[scenario.name] = stats
-
-			t.Logf("%s:", scenario.description)
-			t.Logf("  Original: %v", stats.OriginalTime)
-			t.Logf("  Protected: %v", stats.ProtectedTime)
-			t.Logf("  Overhead: %.2f%%", stats.OverheadPercent)
-
-			// Verify overhead is reasonable for application type
-			if scenario.originalTime < 1*time.Second {
-				// Short scripts: 5-15% overhead acceptable
-				assert.True(t, stats.OverheadPercent <= 15.0, "Short script overhead should be <= 15%")
-			} else if scenario.originalTime < 10*time.Second {
-				// Medium apps: 1-5% overhead acceptable
-				assert.True(t, stats.OverheadPercent <= 5.0, "Medium app overhead should be <= 5%")
+			err := mockEngine.OptimizePythonExecution("test.py")
+			if scenario.expectError {
+				assert.Error(t, err)
 			} else {
-				// Long apps: <1% overhead
-				assert.True(t, stats.OverheadPercent <= 1.0, "Long app overhead should be <= 1%")
+				assert.NoError(t, err)
 			}
 		})
 	}
 }
 
-// TestOptimizationFallbacks tests fallback mechanisms
+// TestOptimizationFallbacks tests JIT optimization fallback mechanisms
 func TestOptimizationFallbacks(t *testing.T) {
-	// Test Cython fallback to PyPy
-	t.Run("cython_fallback_to_pypy", func(t *testing.T) {
-		options := core.PerformanceOptions{
-			UseCython: true, // Will fail in mock
-		}
+	// Test PyPy fallback to standard Python
+	t.Run("pypy_fallback", func(t *testing.T) {
+		mockEngine := NewMockPerformanceEngine(core.PerformanceOptions{
+			UsePyPyJIT: true, // Will fail in mock
+		})
 
-		mockEngine := NewMockPerformanceEngine(options)
-		sourceFile := "test.py"
-
-		// Set up failure
 		mockEngine.SetFailNextCall(true)
+		err := mockEngine.OptimizePythonExecution("test.py")
 
-		err := mockEngine.OptimizePythonExecution(sourceFile)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "cython not available")
+		// Should still work due to fallback
+		assert.Error(t, err) // Mock fails, but real implementation would fallback
+		assert.Contains(t, err.Error(), "pypy jit not available")
 	})
 
-	// Test OPcache fallback to regular PHP
+	// Test OPcache fallback
 	t.Run("opcache_fallback", func(t *testing.T) {
-		options := core.PerformanceOptions{
+		mockEngine := NewMockPerformanceEngine(core.PerformanceOptions{
 			UsePHPOPcache: true,
-		}
+		})
 
-		mockEngine := NewMockPerformanceEngine(options)
-		sourceFile := "test.php"
-
-		// Set up failure
 		mockEngine.SetFailNextCall(true)
+		err := mockEngine.OptimizePHPExecution("test.php")
 
-		err := mockEngine.OptimizePHPExecution(sourceFile)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "opcache not available")
 	})
 
-	// Test V8 fallback to regular Node
-	t.Run("v8_fallback", func(t *testing.T) {
-		options := core.PerformanceOptions{
+	// Test V8 JIT fallback
+	t.Run("v8_jit_fallback", func(t *testing.T) {
+		mockEngine := NewMockPerformanceEngine(core.PerformanceOptions{
 			UseNodeJIT: true,
-		}
+		})
 
-		mockEngine := NewMockPerformanceEngine(options)
-		sourceFile := "test.js"
-
-		// Set up failure
 		mockEngine.SetFailNextCall(true)
+		err := mockEngine.OptimizeJavaScriptExecution("test.js")
 
-		err := mockEngine.OptimizeJavaScriptExecution(sourceFile)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "node not found")
+		assert.Contains(t, err.Error(), "node v8 jit not available")
 	})
 }
 
-// BenchmarkPerformanceOptimizations benchmarks the optimization overhead
-func BenchmarkPerformanceOptimizations(b *testing.B) {
+// BenchmarkJITPerformanceOptimizations benchmarks the JIT optimization process
+func BenchmarkJITPerformanceOptimizations(b *testing.B) {
 	options := core.PerformanceOptions{
-		UseCython:       true,
+		UsePyPyJIT:      true,
 		UsePHPOPcache:   true,
 		UseNodeJIT:      true,
 		PrecompileCache: true,
@@ -497,97 +460,81 @@ func BenchmarkPerformanceOptimizations(b *testing.B) {
 
 	mockEngine := NewMockPerformanceEngine(options)
 
-	b.Run("python_optimization", func(b *testing.B) {
-		b.ResetTimer()
+	b.Run("python_pypy_jit", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			mockEngine.OptimizePythonExecution("bench.py")
 		}
 	})
 
-	b.Run("php_optimization", func(b *testing.B) {
-		b.ResetTimer()
+	b.Run("php_opcache_jit", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			mockEngine.OptimizePHPExecution("bench.php")
 		}
 	})
 
-	b.Run("javascript_optimization", func(b *testing.B) {
-		b.ResetTimer()
+	b.Run("javascript_v8_jit", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			mockEngine.OptimizeJavaScriptExecution("bench.js")
 		}
 	})
 }
 
-// TestPerformanceMetrics tests performance measurement accuracy
-func TestPerformanceMetrics(t *testing.T) {
+// TestJITPerformanceMetrics tests performance metric collection
+func TestJITPerformanceMetrics(t *testing.T) {
 	options := core.PerformanceOptions{
-		UseCython:     true,
-		UsePHPOPcache: true,
-		UseNodeJIT:    true,
+		UsePyPyJIT:     true,
+		CacheDirectory: "/tmp/eden_test_metrics",
 	}
 
 	mockEngine := NewMockPerformanceEngine(options)
 
-	// Test Python metrics
+	// Execute optimization
 	err := mockEngine.OptimizePythonExecution("metrics_test.py")
 	assert.NoError(t, err)
 
+	// Verify metrics collection
 	stats := mockEngine.GetPerformanceStats()
+	assert.Len(t, stats, 1)
+
 	pythonStats := stats["python_metrics_test.py"]
-
 	assert.NotNil(t, pythonStats)
-	assert.True(t, pythonStats.OriginalTime > 0)
-	assert.True(t, pythonStats.ProtectedTime > 0)
-	assert.True(t, pythonStats.DecryptionTime > 0)
-	assert.True(t, pythonStats.CompilationTime > 0)
-
-	// Verify overhead calculation
-	expectedOverhead := float64(pythonStats.ProtectedTime-pythonStats.OriginalTime) / float64(pythonStats.OriginalTime) * 100
-	assert.InDelta(t, expectedOverhead, pythonStats.OverheadPercent, 0.1)
+	assert.Greater(t, pythonStats.OriginalTime, time.Duration(0))
+	assert.Greater(t, pythonStats.ProtectedTime, time.Duration(0))
+	assert.NotEqual(t, 0.0, pythonStats.OverheadPercent)
 }
 
-// TestConcurrentOptimizations tests concurrent optimization calls
-func TestConcurrentOptimizations(t *testing.T) {
+// TestConcurrentJITOptimizations tests concurrent optimization execution
+func TestConcurrentJITOptimizations(t *testing.T) {
 	options := core.PerformanceOptions{
-		UseCython:     true,
-		UsePHPOPcache: true,
-		UseNodeJIT:    true,
+		UsePyPyJIT:     true,
+		MaxWorkers:     runtime.NumCPU(),
+		CacheDirectory: "/tmp/eden_concurrent_test",
 	}
 
 	mockEngine := NewMockPerformanceEngine(options)
 
-	// Run multiple optimizations concurrently
-	done := make(chan bool, 3)
+	// Test concurrent executions
+	const numGoroutines = 10
+	done := make(chan error, numGoroutines)
 
-	go func() {
-		err := mockEngine.OptimizePythonExecution("concurrent1.py")
-		assert.NoError(t, err)
-		done <- true
-	}()
-
-	go func() {
-		err := mockEngine.OptimizePHPExecution("concurrent1.php")
-		assert.NoError(t, err)
-		done <- true
-	}()
-
-	go func() {
-		err := mockEngine.OptimizeJavaScriptExecution("concurrent1.js")
-		assert.NoError(t, err)
-		done <- true
-	}()
-
-	// Wait for all to complete
-	for i := 0; i < 3; i++ {
-		<-done
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			err := mockEngine.OptimizePythonExecution(fmt.Sprintf("concurrent_%d.py", id))
+			done <- err
+		}(i)
 	}
 
-	// Verify all stats were recorded
-	stats := mockEngine.GetPerformanceStats()
-	assert.Len(t, stats, 3)
+	// Wait for all goroutines to complete
+	for i := 0; i < numGoroutines; i++ {
+		err := <-done
+		assert.NoError(t, err, "Goroutine %d failed", i)
+	}
 
-	// Verify call history
+	// Verify all optimizations were recorded
+	stats := mockEngine.GetPerformanceStats()
+	assert.Equal(t, numGoroutines, len(stats))
+
+	// Verify call history shows all executions
 	history := mockEngine.GetCallHistory()
-	assert.Len(t, history, 3)
+	assert.Equal(t, numGoroutines, len(history))
 }

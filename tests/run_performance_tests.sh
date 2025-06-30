@@ -186,58 +186,46 @@ import (
     "time"
 )
 
-type MockPerformanceOptions struct {
-    UseCython       bool
-    UsePHPOPcache   bool
-    UseNodeJIT      bool
-    PrecompileCache bool
+// Mock performance engine for testing
+type MockEngine struct {
+	options PerformanceOptions
 }
 
-type MockPerformanceEngine struct {
-    options MockPerformanceOptions
+type PerformanceOptions struct {
+	UsePyPyJIT       bool
+	UsePHPOPcache    bool  
+	UseNodeJIT       bool
+	PrecompileCache  bool
+	CacheDirectory   string
 }
 
-func NewMockPerformanceEngine(opts MockPerformanceOptions) *MockPerformanceEngine {
-    return &MockPerformanceEngine{options: opts}
+func (m *MockEngine) OptimizePython(file string) error {
+	if m.options.UsePyPyJIT {
+		time.Sleep(50 * time.Millisecond) // Mock PyPy JIT warmup
+	}
+	return nil
 }
 
-func (m *MockPerformanceEngine) OptimizePython(file string) time.Duration {
-    start := time.Now()
-    
-    if m.options.UseCython {
-        time.Sleep(50 * time.Millisecond) // Mock Cython compilation
-    }
-    
-    // Mock execution overhead
-    time.Sleep(10 * time.Millisecond)
-    
-    return time.Since(start)
+func setupEngine() *MockEngine {
+	return &MockEngine{
+		options: PerformanceOptions{
+			UsePyPyJIT:      true,
+			UsePHPOPcache:   true,
+			UseNodeJIT:      true,
+			PrecompileCache: true,
+			CacheDirectory:  "/tmp/test_cache",
+		},
+	}
 }
 
-func (m *MockPerformanceEngine) OptimizePHP(file string) time.Duration {
-    start := time.Now()
-    
-    if m.options.UsePHPOPcache {
-        time.Sleep(20 * time.Millisecond) // Mock OPcache setup
-    }
-    
-    // Mock execution overhead
-    time.Sleep(5 * time.Millisecond)
-    
-    return time.Since(start)
-}
-
-func (m *MockPerformanceEngine) OptimizeJavaScript(file string) time.Duration {
-    start := time.Now()
-    
-    if m.options.UseNodeJIT {
-        time.Sleep(30 * time.Millisecond) // Mock V8 setup
-    }
-    
-    // Mock execution overhead
-    time.Sleep(8 * time.Millisecond)
-    
-    return time.Since(start)
+// Performance test scenarios
+tests := []struct {
+	name     string
+	testFunc func(*MockEngine) error
+}{
+	{"Python (PyPy JIT)", engine.OptimizePython},
+	{"PHP (OPcache JIT)", engine.OptimizePHP},
+	{"JavaScript (V8 JIT)", engine.OptimizeJS},
 }
 
 func main() {
@@ -309,11 +297,11 @@ test_optimization_tools() {
     if command -v python3 &> /dev/null; then
         echo "  [SUCCESS] Python3: $(python3 --version)"
         
-        if python3 -c "import cython" 2>/dev/null; then
-            echo "  [SUCCESS] Cython: Available"
-        else
-            echo "  [ERROR] Cython: Not available"
-        fi
+        if command -v pypy3 >/dev/null 2>&1; then
+    echo "  [SUCCESS] PyPy JIT: Available"
+else
+    echo "  [ERROR] PyPy JIT: Not available"
+fi
         
         if python3 -c "import numpy" 2>/dev/null; then
             echo "  [SUCCESS] NumPy: Available" 

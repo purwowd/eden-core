@@ -52,9 +52,34 @@ Thumbs.db
 # Logs
 *.log
 
+# Database files (SQLite and others)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
 # Temporary files
 /tmp/
 temp/
 
 # Build artifacts
-vendor/ 
+vendor/
+
+# Test artifacts and generated files
+/tests/unit/logs/
+/tests/*/logs/
+coverage.html
+coverage.xml
+*.prof
+
+# Configuration files (environment specific)
+.env
+.env.local
+.env.production
+config.local.*
+
+# IDE and Editor files
+*.sublime-*
+.vscode/settings.json
+.vscode/launch.json 

@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Eden Core Performance Tools Installation Script
-# Installs optimization tools for maximum performance
+# Installs JIT optimization tools for maximum performance
+# Supports: PyPy JIT, PHP OPcache JIT, Node.js V8 JIT
 
 set -e
 
@@ -12,22 +13,22 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}[PACKAGE] Installing Python Performance Tools...${NC}"
-
 # Detect OS
-OS=""
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     OS="linux"
 elif [[ "$OSTYPE" == "darwin"* ]]; then
     OS="macos"
-elif [[ "$OSTYPE" == "cygwin" ]]; then
+elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
     OS="windows"
 else
-    echo -e "${RED}Unsupported operating system: $OSTYPE${NC}"
-    exit 1
+    OS="unknown"
 fi
 
-echo -e "${YELLOW}Detected OS: $OS${NC}"
+echo -e "${BLUE}================================================${NC}"
+echo -e "${BLUE} Eden Core JIT Performance Tools Installer ${NC}"
+echo -e "${BLUE}================================================${NC}"
+echo ""
+echo -e "${GREEN}Detected OS: $OS${NC}"
 echo ""
 
 # Function to check if command exists
@@ -35,12 +36,14 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Install Python Performance Tools
-echo -e "${BLUE}[PACKAGE] Installing Python Performance Tools...${NC}"
+# Install Python Performance Tools (PyPy JIT)
+echo -e "${BLUE}[PACKAGE] Installing Python JIT Performance Tools...${NC}"
 
-# Install PyPy
-if ! command_exists pypy3; then
-    echo "Installing PyPy..."
+# Check if PyPy3 is already installed
+if command_exists pypy3; then
+    echo -e "${GREEN}[SUCCESS] PyPy already installed: $(pypy3 --version 2>&1 | head -1)${NC}"
+else
+    echo "Installing PyPy JIT compiler..."
     if [[ "$OS" == "linux" ]]; then
         if command_exists apt-get; then
             sudo apt-get update
@@ -49,22 +52,25 @@ if ! command_exists pypy3; then
             sudo yum install -y pypy3 pypy3-devel
         elif command_exists dnf; then
             sudo dnf install -y pypy3 pypy3-devel
+        elif command_exists pacman; then
+            sudo pacman -S pypy3
+        else
+            echo -e "${YELLOW}Please install PyPy manually for your distribution${NC}"
         fi
     elif [[ "$OS" == "macos" ]]; then
         if command_exists brew; then
             brew install pypy3
         else
-            echo -e "${YELLOW}Homebrew not found. Please install PyPy manually.${NC}"
+            echo -e "${YELLOW}Please install Homebrew first, then run: brew install pypy3${NC}"
         fi
+    else
+        echo -e "${YELLOW}Please install PyPy manually for your platform${NC}"
     fi
-else
-    echo -e "${GREEN}[SUCCESS] PyPy already installed${NC}"
 fi
 
-# Install Cython and dependencies
-echo "Installing Cython..."
-pip3 install --upgrade pip
-pip3 install cython numpy setuptools wheel
+# Install basic Python packages for PyPy
+echo "Installing basic Python packages..."
+pip3 install --upgrade pip setuptools wheel
 
 # Install PyPy packages
 if command_exists pypy3; then
@@ -73,11 +79,11 @@ if command_exists pypy3; then
     pypy3 -m pip install --upgrade pip setuptools wheel 2>/dev/null || true
 fi
 
-echo -e "${GREEN}[SUCCESS] Python performance tools installed${NC}"
+echo -e "${GREEN}[SUCCESS] Python JIT tools installed${NC}"
 echo ""
 
 # Install PHP Performance Tools
-echo -e "${BLUE}[PACKAGE] Installing PHP Performance Tools...${NC}"
+echo -e "${BLUE}[PACKAGE] Installing PHP JIT Performance Tools...${NC}"
 
 if command_exists php; then
     PHP_VERSION=$(php -r "echo PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION;")
@@ -87,7 +93,7 @@ if command_exists php; then
     if php -m | grep -q "opcache"; then
         echo -e "${GREEN}[SUCCESS] OPcache already available${NC}"
     else
-        echo "Installing OPcache..."
+        echo "Installing OPcache JIT..."
         if [[ "$OS" == "linux" ]]; then
             if command_exists apt-get; then
                 sudo apt-get install -y php-opcache
@@ -117,11 +123,11 @@ else
     echo -e "${YELLOW}PHP not found. Please install PHP first.${NC}"
 fi
 
-echo -e "${GREEN}[SUCCESS] PHP performance tools configured${NC}"
+echo -e "${GREEN}[SUCCESS] PHP JIT tools configured${NC}"
 echo ""
 
 # Install Node.js Performance Tools
-echo -e "${BLUE}[PACKAGE] Installing Node.js Performance Tools...${NC}"
+echo -e "${BLUE}[PACKAGE] Installing Node.js V8 JIT Performance Tools...${NC}"
 
 if command_exists node; then
     NODE_VERSION=$(node --version)
@@ -130,7 +136,7 @@ if command_exists node; then
     # Install performance monitoring tools
     npm install -g clinic autocannon
     
-    echo -e "${GREEN}[SUCCESS] Node.js performance tools installed${NC}"
+    echo -e "${GREEN}[SUCCESS] Node.js V8 JIT tools installed${NC}"
 else
     echo -e "${YELLOW}Node.js not found. Installing...${NC}"
     if [[ "$OS" == "linux" ]]; then
@@ -148,16 +154,15 @@ fi
 echo ""
 
 # Create performance test configuration
-echo -e "${BLUE}[STATS] Creating benchmark utilities...${NC}"
+echo -e "${BLUE}[STATS] Creating JIT benchmark utilities...${NC}"
 
 PERF_CONFIG_FILE="$HOME/.eden_performance_config"
 cat > "$PERF_CONFIG_FILE" << 'EOF'
-# Eden Core Performance Configuration
+# Eden Core JIT Performance Configuration
 # Generated by install_performance_tools.sh
 
 [python]
-use_cython=true
-use_pypy=true
+use_pypy_jit=true
 jit_warmup_time=1000
 
 [php]
@@ -244,7 +249,7 @@ chmod +x "$HOME/.eden_tools/benchmark_python.py"
 cat > "$HOME/.eden_tools/compare_performance.sh" << 'EOF'
 #!/bin/bash
 
-# Eden Core Performance Comparison Script
+# Eden Core JIT Performance Comparison Script
 
 if [ $# -ne 2 ]; then
     echo "Usage: $0 <original_file> <protected_file>"
@@ -254,14 +259,14 @@ fi
 ORIGINAL_FILE="$1"
 PROTECTED_FILE="$2"
 
-echo "=== EDEN CORE PERFORMANCE COMPARISON ==="
+echo "=== EDEN CORE JIT PERFORMANCE COMPARISON ==="
 echo ""
 
 echo "[STATS] Original file performance:"
 time python3 "$ORIGINAL_FILE"
 echo ""
 
-echo "[STATS] Protected file performance:"
+echo "[STATS] Protected file performance (with JIT):"
 time eden-run -q "$PROTECTED_FILE"
 echo ""
 
@@ -275,44 +280,43 @@ echo -e "${GREEN}[SUCCESS] Benchmark utilities created in ~/.eden_tools/${NC}"
 echo ""
 
 # Test installation
-echo -e "${BLUE}🧪 Testing performance tools...${NC}"
+echo -e "${BLUE}🧪 Testing JIT performance tools...${NC}"
 
-echo "Testing Python tools:"
-python3 -c "import cython; print('[SUCCESS] Cython:', cython.__version__)" 2>/dev/null || echo "[ERROR] Cython installation failed"
-python3 -c "import numpy; print('[SUCCESS] NumPy:', numpy.__version__)" 2>/dev/null || echo "[ERROR] NumPy installation failed"
+echo "Testing Python JIT tools:"
+python3 -c "print('[SUCCESS] Python3: Available')" 2>/dev/null || echo "[ERROR] Python3 not available"
 
 if command_exists pypy3; then
-    echo "[SUCCESS] PyPy: $(pypy3 --version 2>&1 | head -1)"
+    echo "[SUCCESS] PyPy JIT: $(pypy3 --version 2>&1 | head -1)"
 else
-    echo "[ERROR] PyPy not available"
+    echo "[ERROR] PyPy JIT not available"
 fi
 
 echo ""
-echo "Testing PHP tools:"
+echo "Testing PHP JIT tools:"
 if php -m | grep -q opcache; then
-    echo "[SUCCESS] OPcache available"
+    echo "[SUCCESS] OPcache JIT available"
 else
-    echo "[ERROR] OPcache not available"
+    echo "[ERROR] OPcache JIT not available"
 fi
 
 echo ""
-echo "Testing Node.js tools:"
+echo "Testing Node.js V8 JIT tools:"
 if command_exists node; then
-    echo "[SUCCESS] Node.js: $(node --version)"
+    echo "[SUCCESS] Node.js V8 JIT: $(node --version)"
 else
-    echo "[ERROR] Node.js not available"
+    echo "[ERROR] Node.js V8 JIT not available"
 fi
 
 echo ""
 
 # Final instructions
 echo -e "${GREEN}================================================${NC}"
-echo -e "${GREEN} Installation Complete! ${NC}"
+echo -e "${GREEN} JIT Installation Complete! ${NC}"
 echo -e "${GREEN}================================================${NC}"
 echo ""
 
-echo -e "${BLUE}Performance Features Available:${NC}"
-echo -e "  [PYTHON] Python: Cython compilation + PyPy JIT"
+echo -e "${BLUE}JIT Performance Features Available:${NC}"
+echo -e "  [PYTHON] Python: PyPy JIT compilation"
 echo -e "  [PHP] PHP: OPcache + JIT optimization"
 echo -e "  [NODEJS] Node.js: V8 JIT + memory optimization"
 echo ""
@@ -327,8 +331,8 @@ echo -e "${BLUE}Quick Usage:${NC}"
 echo -e "  ${GREEN}# Benchmark original vs protected${NC}"
 echo -e "  ~/.eden_tools/compare_performance.sh app.py protected/files/app.eden"
 echo ""
-echo -e "  ${GREEN}# Run with optimizations${NC}"
+echo -e "  ${GREEN}# Run with JIT optimizations${NC}"
 echo -e "  eden-run -q protected/files/app.eden"
 echo ""
 
-echo -e "${GREEN}[LAUNCH] Eden Core is now optimized for maximum performance!${NC}" 
+echo -e "${GREEN}[LAUNCH] Eden Core is now optimized for maximum JIT performance!${NC}" 

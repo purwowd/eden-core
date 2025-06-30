@@ -62,14 +62,14 @@ sudo cp bin/eden /usr/local/bin/
 
 ### Performance Tools Installation
 ```bash
-# Install optimization tools for maximum performance
+# Install JIT optimization tools for maximum performance
 ./scripts/install_performance_tools.sh
 ```
 
 This installs:
-- **Python**: Cython, PyPy, NumPy
-- **PHP**: OPcache, JIT compiler
-- **Node.js**: V8 optimization tools
+- **Python**: PyPy JIT compiler
+- **PHP**: OPcache JIT compiler  
+- **Node.js**: V8 JIT optimization tools
 
 ---
 
@@ -210,19 +210,18 @@ Eden Core automatically applies performance optimizations based on available too
 
 #### Python Optimizations
 
-**1. Cython Compilation** (10-300% faster)
+**1. PyPy JIT Compilation** (50-500% faster)
 ```bash
-# Automatically enabled if Cython is available
-pip3 install cython numpy setuptools wheel
-eden-run app.eden  # Uses Cython compilation
-```
-
-**2. PyPy JIT** (50-500% faster)
-```bash
-# Fallback when Cython unavailable
+# Automatically enabled if PyPy is available
 brew install pypy3  # macOS
 sudo apt install pypy3  # Ubuntu
-eden-run app.eden  # Automatically uses PyPy
+eden-run app.eden  # Uses PyPy JIT compilation
+```
+
+**2. Standard Python** (fallback)
+```bash
+# Fallback when PyPy unavailable
+eden-run app.eden  # Uses standard Python interpreter
 ```
 
 #### PHP Optimizations
@@ -289,8 +288,7 @@ ls -la /tmp/eden_performance_cache
 Create `~/.eden_performance_config`:
 ```ini
 [python]
-use_cython=true
-use_pypy=true
+use_pypy_jit=true
 jit_warmup_time=1000
 
 [php] 
@@ -390,10 +388,10 @@ Error: Failed to execute protected file: permission denied
 
 #### 4. Performance Issues
 ```bash
-# Check if optimization tools are installed
-python3 -c "import cython; print('Cython OK')"
+# Check if JIT optimization tools are installed
 pypy3 --version
 php -m opcache
+node --version
 
 # Install missing tools
 ./scripts/install_performance_tools.sh

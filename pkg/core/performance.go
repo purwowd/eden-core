@@ -7,16 +7,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 )
 
 // PerformanceOptions represents performance optimization settings
 type PerformanceOptions struct {
-	UseCython       bool   `json:"use_cython"`
 	UsePHPOPcache   bool   `json:"use_php_opcache"`
 	UseNodeJIT      bool   `json:"use_node_jit"`
+	UsePyPyJIT      bool   `json:"use_pypy_jit"`
 	PrecompileCache bool   `json:"precompile_cache"`
 	InMemoryExec    bool   `json:"in_memory_exec"`
 	ParallelDecrypt bool   `json:"parallel_decrypt"`
@@ -57,7 +56,9 @@ type MemoryManager struct {
 // DefaultPerformanceOptions returns optimized default settings
 func DefaultPerformanceOptions() PerformanceOptions {
 	return PerformanceOptions{
-		UseCython:       true,
+		UsePyPyJIT:      true,
+		UsePHPOPcache:   true,
+		UseNodeJIT:      true,
 		PrecompileCache: true,
 		InMemoryExec:    true,
 		ParallelDecrypt: true,
@@ -110,7 +111,7 @@ func NewMemoryManager(maxMemoryMB, cleanupInterval int) *MemoryManager {
 	}
 }
 
-// OptimizePythonExecution optimizes Python code execution using various techniques
+// OptimizePythonExecution optimizes Python code execution using PyPy JIT
 func (pe *PerformanceEngine) OptimizePythonExecution(sourceFile string) error {
 	// Initialize memory manager if needed
 	if pe.memManager == nil {
@@ -136,21 +137,23 @@ func (pe *PerformanceEngine) OptimizePythonExecution(sourceFile string) error {
 		}
 	}
 
-	var err error
-	if pe.options.UseCython {
-		err = pe.optimizeWithCython(sourceFile)
-		if err == nil {
-			// Cache successful compilation
-			if pe.options.PrecompileCache {
-				pe.saveToCache(cacheKey, sourceFile)
-			}
-			return nil
+	// Use PyPy JIT optimization
+	if pe.options.UsePyPyJIT {
+		fmt.Printf("Optimizing Python with PyPy JIT...\n")
+		if err := pe.optimizeWithPyPy(sourceFile); err != nil {
+			fmt.Printf("PyPy optimization failed: %v, falling back to regular Python\n", err)
+			return pe.executeRegularPython(sourceFile)
 		}
-		// Log Cython failure but continue to PyPy
-		fmt.Printf("Cython optimization failed: %v, falling back to PyPy\n", err)
+
+		// Cache successful execution
+		if pe.options.PrecompileCache {
+			pe.saveToCache(cacheKey, sourceFile)
+		}
+		return nil
 	}
 
-	return pe.optimizeWithPyPy(sourceFile)
+	// Fallback to regular Python
+	return pe.executeRegularPython(sourceFile)
 }
 
 // loadFromCache attempts to load cached optimization
@@ -198,84 +201,13 @@ type CachedOptimization struct {
 	Options    PerformanceOptions `json:"options"`
 }
 
-// executeFromCache executes optimized code from cache
+// executeFromCache executes from cached optimization
 func (pe *PerformanceEngine) executeFromCache(cached *CachedOptimization) error {
-	fmt.Printf("Using cached optimization for %s\n", cached.SourceFile)
-
-	// Execute with appropriate runtime
-	if cached.Options.UseCython {
-		return pe.executeCythonizedCode(cached.SourceFile)
-	}
-	return pe.optimizeWithPyPy(cached.SourceFile)
-}
-
-// optimizeWithCython optimizes Python code using Cython
-func (pe *PerformanceEngine) optimizeWithCython(sourceFile string) error {
-	setupPyContent := fmt.Sprintf(`
-from setuptools import setup
-from Cython.Build import cythonize
-
-setup(
-    ext_modules=cythonize(
-        "%s",
-        compiler_directives={
-            'language_level': "3",
-            'boundscheck': False,
-            'wraparound': False,
-            'initializedcheck': False,
-            'nonecheck': False,
-        },
-        quiet=True,
-    )
-)`, filepath.Base(sourceFile))
-
-	// Create setup.py in cache directory
-	setupPyPath := filepath.Join(pe.cacheDir, "setup.py")
-	if err := os.WriteFile(setupPyPath, []byte(setupPyContent), 0644); err != nil {
-		return fmt.Errorf("failed to create setup.py: %w", err)
+	if cached.Options.UsePyPyJIT {
+		return pe.optimizeWithPyPy(cached.SourceFile)
 	}
 
-	// Copy source file to cache directory
-	destPath := filepath.Join(pe.cacheDir, filepath.Base(sourceFile))
-	input, err := os.ReadFile(sourceFile)
-	if err != nil {
-		return fmt.Errorf("failed to read source file: %w", err)
-	}
-	if err := os.WriteFile(destPath, input, 0644); err != nil {
-		return fmt.Errorf("failed to write source file: %w", err)
-	}
-
-	// Run Cython compilation
-	cmd := exec.Command("python", "setup.py", "build_ext", "--inplace")
-	cmd.Dir = pe.cacheDir
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("cython compilation failed: %w", err)
-	}
-
-	return nil
-}
-
-// executeCythonizedCode executes Cython-compiled code
-func (pe *PerformanceEngine) executeCythonizedCode(sourceFile string) error {
-	compiledPath := filepath.Join(pe.cacheDir, filepath.Base(sourceFile)+".so")
-
-	// Verify compiled file exists
-	if _, err := os.Stat(compiledPath); err != nil {
-		return fmt.Errorf("compiled file not found: %w", err)
-	}
-
-	// Import and execute compiled module
-	cmd := exec.Command("python3", "-c", fmt.Sprintf(`
-import sys
-sys.path.append("%s")
-import %s
-`, pe.cacheDir, strings.TrimSuffix(filepath.Base(sourceFile), ".py")))
-
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-
-	return cmd.Run()
+	return pe.executeRegularPython(cached.SourceFile)
 }
 
 // optimizeWithPyPy uses PyPy JIT for faster execution
@@ -315,7 +247,7 @@ func (pe *PerformanceEngine) executeRegularPython(sourceFile string) error {
 
 // OptimizePHPExecution optimizes PHP code execution
 func (pe *PerformanceEngine) OptimizePHPExecution(sourceFile string) error {
-	fmt.Printf("Optimizing PHP with OPcache...\n")
+	fmt.Printf("Optimizing PHP with OPcache JIT...\n")
 
 	if pe.options.UsePHPOPcache {
 		return pe.optimizeWithOPcache(sourceFile)
@@ -440,10 +372,10 @@ func (pe *PerformanceEngine) MeasurePerformance(originalFile, protectedFile stri
 func (pe *PerformanceEngine) CreatePerformanceReport() string {
 	report := "=== EDEN CORE PERFORMANCE REPORT ===\n\n"
 
-	report += "Optimization Settings:\n"
-	report += fmt.Sprintf("  Cython Optimization: %v\n", pe.options.UseCython)
-	report += fmt.Sprintf("  PHP OPcache: %v\n", pe.options.UsePHPOPcache)
-	report += fmt.Sprintf("  Node.js JIT: %v\n", pe.options.UseNodeJIT)
+	report += "JIT Optimization Settings:\n"
+	report += fmt.Sprintf("  PyPy JIT: %v\n", pe.options.UsePyPyJIT)
+	report += fmt.Sprintf("  PHP OPcache JIT: %v\n", pe.options.UsePHPOPcache)
+	report += fmt.Sprintf("  Node.js V8 JIT: %v\n", pe.options.UseNodeJIT)
 	report += fmt.Sprintf("  Precompile Cache: %v\n", pe.options.PrecompileCache)
 	report += fmt.Sprintf("  Cache Directory: %s\n", pe.cacheDir)
 
@@ -458,139 +390,84 @@ func (pe *PerformanceEngine) CreatePerformanceReport() string {
 	return report
 }
 
-func optimizePythonWithCython(sourcePath string, cacheDir string) error {
-	setupPyContent := fmt.Sprintf(`
-from setuptools import setup
-from Cython.Build import cythonize
-
-setup(
-    ext_modules=cythonize(
-        "%s",
-        compiler_directives={
-            'language_level': "3",
-            'boundscheck': False,
-            'wraparound': False,
-            'initializedcheck': False,
-            'nonecheck': False,
-        },
-        quiet=True,
-    )
-)`, filepath.Base(sourcePath))
-
-	// Create setup.py in cache directory
-	setupPyPath := filepath.Join(cacheDir, "setup.py")
-	if err := os.WriteFile(setupPyPath, []byte(setupPyContent), 0644); err != nil {
-		return fmt.Errorf("failed to create setup.py: %w", err)
-	}
-
-	// Copy source file to cache directory
-	destPath := filepath.Join(cacheDir, filepath.Base(sourcePath))
-	input, err := os.ReadFile(sourcePath)
-	if err != nil {
-		return fmt.Errorf("failed to read source file: %w", err)
-	}
-	if err := os.WriteFile(destPath, input, 0644); err != nil {
-		return fmt.Errorf("failed to write source file: %w", err)
-	}
-
-	// Run Cython compilation
-	cmd := exec.Command("python", "setup.py", "build_ext", "--inplace")
-	cmd.Dir = cacheDir
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("cython compilation failed: %w", err)
-	}
-
-	return nil
-}
-
 // OptimizePythonBatch optimizes multiple Python files in parallel
 func (pe *PerformanceEngine) OptimizePythonBatch(sourceFiles []string) error {
-	if pe.options.MaxWorkers <= 0 {
-		pe.options.MaxWorkers = runtime.NumCPU()
+	fmt.Printf("Batch optimizing %d Python files...\n", len(sourceFiles))
+
+	// Use worker pool for parallel processing
+	workers := pe.options.MaxWorkers
+	if workers <= 0 {
+		workers = runtime.NumCPU()
 	}
 
-	// Create worker pool
-	workerCount := min(pe.options.MaxWorkers, len(sourceFiles))
 	jobs := make(chan string, len(sourceFiles))
 	results := make(chan error, len(sourceFiles))
 
 	// Start workers
-	var wg sync.WaitGroup
-	for i := 0; i < workerCount; i++ {
-		wg.Add(1)
+	for w := 0; w < workers; w++ {
 		go func() {
-			defer wg.Done()
 			for sourceFile := range jobs {
-				results <- pe.OptimizePythonExecution(sourceFile)
+				err := pe.OptimizePythonExecution(sourceFile)
+				results <- err
 			}
 		}()
 	}
 
 	// Send jobs
-	for _, file := range sourceFiles {
-		jobs <- file
+	for _, sourceFile := range sourceFiles {
+		jobs <- sourceFile
 	}
 	close(jobs)
 
-	// Wait for all workers
-	wg.Wait()
-	close(results)
-
-	// Check results
+	// Collect results
 	var errors []error
-	for err := range results {
-		if err != nil {
+	for range sourceFiles {
+		if err := <-results; err != nil {
 			errors = append(errors, err)
 		}
 	}
 
 	if len(errors) > 0 {
-		return fmt.Errorf("batch optimization failed with %d errors: %v", len(errors), errors)
+		return fmt.Errorf("batch optimization failed for %d files", len(errors))
 	}
 
+	fmt.Printf("Batch optimization completed successfully for %d files\n", len(sourceFiles))
 	return nil
 }
+
+// MemoryManager methods
 
 // CheckMemory checks and manages memory usage
 func (mm *MemoryManager) CheckMemory() error {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
 
-	// Check if cleanup is needed
-	if time.Since(mm.lastCleanup).Minutes() < float64(mm.cleanupInterval) {
-		return nil
+	// Cleanup old files if interval passed
+	if time.Since(mm.lastCleanup) > time.Duration(mm.cleanupInterval)*time.Minute {
+		mm.cleanupOldFiles()
+		mm.lastCleanup = time.Now()
 	}
 
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-
-	// Convert to MB
-	usedMemoryMB := int(m.Alloc / 1024 / 1024)
-
-	if usedMemoryMB > mm.maxMemoryMB {
-		// Trigger cleanup
-		runtime.GC()
+	// Check memory usage (simplified check)
+	if len(mm.allocatedFiles) > 1000 {
 		mm.cleanupOldFiles()
 	}
 
-	mm.lastCleanup = time.Now()
 	return nil
 }
 
-// TrackFile tracks file allocation
+// TrackFile tracks a file allocation
 func (mm *MemoryManager) TrackFile(file string) {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
 	mm.allocatedFiles[file] = time.Now()
 }
 
-// cleanupOldFiles removes old cached files
+// cleanupOldFiles removes old file allocations
 func (mm *MemoryManager) cleanupOldFiles() {
-	threshold := time.Now().Add(-time.Hour) // Keep files younger than 1 hour
-
-	for file, timestamp := range mm.allocatedFiles {
-		if timestamp.Before(threshold) {
-			os.Remove(file)
+	cutoff := time.Now().Add(-time.Duration(mm.cleanupInterval) * time.Minute)
+	for file, allocTime := range mm.allocatedFiles {
+		if allocTime.Before(cutoff) {
 			delete(mm.allocatedFiles, file)
 		}
 	}

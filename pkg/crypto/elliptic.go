@@ -85,10 +85,20 @@ func (ec *EllipticCrypto) ProtectWithECC(data []byte) (*EllipticCurveProtection,
 	signature := ecdsa.Sign(ec.privateKey, dataHash[:])
 	sigBytes := signature.Serialize()
 
+	// Ensure X and Y coordinates are exactly 32 bytes
+	pubKeyX := make([]byte, 32)
+	pubKeyY := make([]byte, 32)
+
+	xBytes := ephemeralPub.X().Bytes()
+	yBytes := ephemeralPub.Y().Bytes()
+
+	copy(pubKeyX[32-len(xBytes):], xBytes)
+	copy(pubKeyY[32-len(yBytes):], yBytes)
+
 	return &EllipticCurveProtection{
 		EncryptedData: encryptedData,
-		PublicKeyX:    ephemeralPub.X().Bytes(), // F = K · G (X coordinate)
-		PublicKeyY:    ephemeralPub.Y().Bytes(), // F = K · G (Y coordinate)
+		PublicKeyX:    pubKeyX, // F = K · G (X coordinate) - 32 bytes
+		PublicKeyY:    pubKeyY, // F = K · G (Y coordinate) - 32 bytes
 		SharedSecret:  sharedSecret[:],
 		Signature:     sigBytes,
 		Hash:          dataHash[:],
@@ -98,8 +108,16 @@ func (ec *EllipticCrypto) ProtectWithECC(data []byte) (*EllipticCurveProtection,
 
 // UnprotectWithECC recovers original data using elliptic curve cryptography
 func (ec *EllipticCrypto) UnprotectWithECC(protection *EllipticCurveProtection) ([]byte, error) {
-	// Recreate ephemeral public key from coordinates
-	ephemeralPub, err := btcec.ParsePubKey(append([]byte{0x04}, append(protection.PublicKeyX, protection.PublicKeyY...)...))
+	// Ensure X and Y coordinates are exactly 32 bytes (pad with leading zeros if needed)
+	pubKeyX := make([]byte, 32)
+	pubKeyY := make([]byte, 32)
+
+	copy(pubKeyX[32-len(protection.PublicKeyX):], protection.PublicKeyX)
+	copy(pubKeyY[32-len(protection.PublicKeyY):], protection.PublicKeyY)
+
+	// Recreate ephemeral public key from coordinates (0x04 + X + Y format)
+	uncompressedKey := append([]byte{0x04}, append(pubKeyX, pubKeyY...)...)
+	ephemeralPub, err := btcec.ParsePubKey(uncompressedKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse ephemeral public key: %v", err)
 	}

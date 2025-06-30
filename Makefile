@@ -77,6 +77,12 @@ clean:
 	@go clean -cache -testcache -modcache
 	@echo "Clean complete!"
 
+## cleanup: Clean up project - remove temporary files, databases, and test artifacts
+cleanup:
+	@echo "🧹 Cleaning up project..."
+	@chmod +x scripts/cleanup.sh
+	@./scripts/cleanup.sh
+
 ## generate-mocks: Generate mock implementations
 generate-mocks:
 	@echo "[TOOLS] Generating mock implementations..."

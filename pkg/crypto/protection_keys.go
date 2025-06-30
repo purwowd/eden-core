@@ -23,6 +23,113 @@ const (
 	Iterations = 10000
 )
 
+// KeyRotationAuditLogger handles audit logging for key rotation events
+type KeyRotationAuditLogger struct {
+	auditLogger *monitoring.AuditLogger
+	enabled     bool
+}
+
+// NewKeyRotationAuditLogger creates a new key rotation audit logger
+func NewKeyRotationAuditLogger() (*KeyRotationAuditLogger, error) {
+	config := map[string]interface{}{
+		"log_path": "logs/key_rotation_audit.db",
+	}
+
+	auditLogger, err := monitoring.NewAuditLogger(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create audit logger: %v", err)
+	}
+
+	return &KeyRotationAuditLogger{
+		auditLogger: auditLogger,
+		enabled:     true,
+	}, nil
+}
+
+// LogKeyRotationStart logs the start of a key rotation process
+func (kral *KeyRotationAuditLogger) LogKeyRotationStart(keyID string, details map[string]interface{}) error {
+	if !kral.enabled {
+		return nil
+	}
+
+	enrichedDetails := make(map[string]interface{})
+	for k, v := range details {
+		enrichedDetails[k] = v
+	}
+	enrichedDetails["phase"] = "rotation_start"
+	enrichedDetails["security_level"] = "high"
+	enrichedDetails["compliance_required"] = true
+
+	return kral.auditLogger.LogKeyRotationEvent("key_rotation_start", keyID, enrichedDetails)
+}
+
+// LogKeyRotationComplete logs successful completion of key rotation
+func (kral *KeyRotationAuditLogger) LogKeyRotationComplete(keyID string, details map[string]interface{}) error {
+	if !kral.enabled {
+		return nil
+	}
+
+	enrichedDetails := make(map[string]interface{})
+	for k, v := range details {
+		enrichedDetails[k] = v
+	}
+	enrichedDetails["phase"] = "rotation_complete"
+	enrichedDetails["status"] = "success"
+	enrichedDetails["compliance_verified"] = true
+
+	return kral.auditLogger.LogKeyRotationEvent("key_rotation_complete", keyID, enrichedDetails)
+}
+
+// LogKeyRotationFailure logs failure in key rotation process
+func (kral *KeyRotationAuditLogger) LogKeyRotationFailure(keyID string, err error, details map[string]interface{}) error {
+	if !kral.enabled {
+		return nil
+	}
+
+	enrichedDetails := make(map[string]interface{})
+	for k, v := range details {
+		enrichedDetails[k] = v
+	}
+	enrichedDetails["phase"] = "rotation_failed"
+	enrichedDetails["status"] = "failure"
+	enrichedDetails["error"] = err.Error()
+	enrichedDetails["requires_attention"] = true
+
+	return kral.auditLogger.LogKeyRotationEvent("key_rotation_failure", keyID, enrichedDetails)
+}
+
+// LogKeyRotationPolicy logs policy validation events
+func (kral *KeyRotationAuditLogger) LogKeyRotationPolicy(keyID string, policyResult string, details map[string]interface{}) error {
+	if !kral.enabled {
+		return nil
+	}
+
+	enrichedDetails := make(map[string]interface{})
+	for k, v := range details {
+		enrichedDetails[k] = v
+	}
+	enrichedDetails["phase"] = "policy_check"
+	enrichedDetails["policy_result"] = policyResult
+	enrichedDetails["compliance_check"] = true
+
+	return kral.auditLogger.LogKeyRotationEvent("key_rotation_policy", keyID, enrichedDetails)
+}
+
+// Global audit logger instance
+var globalKeyRotationLogger *KeyRotationAuditLogger
+
+// initializeGlobalAuditLogger initializes the global audit logger
+func initializeGlobalAuditLogger() {
+	if globalKeyRotationLogger == nil {
+		logger, err := NewKeyRotationAuditLogger()
+		if err != nil {
+			log.Printf("Failed to initialize key rotation audit logger: %v", err)
+			return
+		}
+		globalKeyRotationLogger = logger
+	}
+}
+
 // GenerateMultiAuthKey generates a key for multi-authentication protection
 func GenerateMultiAuthKey(teams []string) ([]byte, error) {
 	// Create a deterministic key based on team names and current time
@@ -193,12 +300,45 @@ type KeyRotationConfig struct {
 	NotifyBefore     time.Duration // Notification period before rotation
 }
 
-// RotateProtectionKey implements secure key rotation
+// RotateProtectionKey implements secure key rotation with comprehensive audit logging
 func RotateProtectionKey(oldKey []byte, config KeyRotationConfig) ([]byte, error) {
+	// Initialize audit logger
+	initializeGlobalAuditLogger()
+
+	// Generate unique rotation ID for tracking
+	rotationID := generateRotationID()
+
+	// Create rotation metadata
+	metadata := map[string]interface{}{
+		"rotation_id":       rotationID,
+		"rotation_time":     time.Now().UTC(),
+		"key_hash":          fmt.Sprintf("%x", sha256.Sum256(oldKey)),
+		"rotation_interval": config.RotationInterval.String(),
+		"retention_period":  config.RetentionPeriod.String(),
+		"notify_before":     config.NotifyBefore.String(),
+		"emergency_keys":    len(config.EmergencyKeys),
+	}
+
+	// Log rotation start
+	if globalKeyRotationLogger != nil {
+		if err := globalKeyRotationLogger.LogKeyRotationStart(rotationID, metadata); err != nil {
+			log.Printf("Failed to log key rotation start: %v", err)
+		}
+	}
+
 	// Generate new key material
 	newKey := make([]byte, 32)
 	if _, err := rand.Read(newKey); err != nil {
-		return nil, fmt.Errorf("failed to generate new key: %v", err)
+		rotationErr := fmt.Errorf("failed to generate new key: %v", err)
+
+		// Log failure
+		if globalKeyRotationLogger != nil {
+			failureMetadata := metadata
+			failureMetadata["failure_stage"] = "key_generation"
+			globalKeyRotationLogger.LogKeyRotationFailure(rotationID, rotationErr, failureMetadata)
+		}
+
+		return nil, rotationErr
 	}
 
 	// Derive new key using both old and new material for security
@@ -207,57 +347,156 @@ func RotateProtectionKey(oldKey []byte, config KeyRotationConfig) ([]byte, error
 	h.Write(newKey)
 	derivedKey := h.Sum(nil)
 
-	// Store key metadata for audit
-	metadata := map[string]interface{}{
-		"rotation_time": time.Now().UTC(),
-		"key_hash":      fmt.Sprintf("%x", sha256.Sum256(derivedKey)),
-		"valid_until":   time.Now().Add(config.RotationInterval),
+	// Update metadata with new key information
+	metadata["new_key_hash"] = fmt.Sprintf("%x", sha256.Sum256(derivedKey))
+	metadata["valid_until"] = time.Now().Add(config.RotationInterval).Format(time.RFC3339)
+	metadata["derivation_method"] = "sha256_combined"
+
+	// Log successful rotation
+	if globalKeyRotationLogger != nil {
+		if err := globalKeyRotationLogger.LogKeyRotationComplete(rotationID, metadata); err != nil {
+			log.Printf("Failed to log key rotation completion: %v", err)
+		}
 	}
 
-	// Log rotation event (implement audit logging)
-	logKeyRotation(metadata)
+	// Log rotation event for general audit trail
+	logKeyRotationAudit(metadata)
 
 	return derivedKey, nil
 }
 
-// VerifyKeyRotationPolicy checks if key rotation is needed
+// VerifyKeyRotationPolicy checks if key rotation is needed with enhanced audit logging
 func VerifyKeyRotationPolicy(keyData []byte, config KeyRotationConfig) (bool, error) {
+	// Initialize audit logger
+	initializeGlobalAuditLogger()
+
+	// Generate policy check ID
+	policyCheckID := generatePolicyCheckID()
+
 	// Extract key metadata
 	metadata, err := extractKeyMetadata(keyData)
 	if err != nil {
-		return false, fmt.Errorf("failed to extract key metadata: %v", err)
+		policyErr := fmt.Errorf("failed to extract key metadata: %v", err)
+
+		// Log policy check failure
+		if globalKeyRotationLogger != nil {
+			failureDetails := map[string]interface{}{
+				"policy_check_id": policyCheckID,
+				"failure_stage":   "metadata_extraction",
+				"error":           err.Error(),
+			}
+			globalKeyRotationLogger.LogKeyRotationFailure(policyCheckID, policyErr, failureDetails)
+		}
+
+		return false, policyErr
 	}
 
 	// Check if rotation is needed
 	rotationTimeStr, ok := metadata["rotation_time"].(string)
 	if !ok {
-		return false, fmt.Errorf("invalid rotation_time format in metadata")
+		policyErr := fmt.Errorf("invalid rotation_time format in metadata")
+
+		// Log policy validation failure
+		if globalKeyRotationLogger != nil {
+			failureDetails := map[string]interface{}{
+				"policy_check_id": policyCheckID,
+				"failure_stage":   "time_validation",
+				"metadata":        metadata,
+			}
+			globalKeyRotationLogger.LogKeyRotationFailure(policyCheckID, policyErr, failureDetails)
+		}
+
+		return false, policyErr
 	}
 
 	rotationTime, err := time.Parse(time.RFC3339, rotationTimeStr)
 	if err != nil {
-		return false, fmt.Errorf("invalid rotation time: %v", err)
+		policyErr := fmt.Errorf("invalid rotation time: %v", err)
+
+		// Log policy validation failure
+		if globalKeyRotationLogger != nil {
+			failureDetails := map[string]interface{}{
+				"policy_check_id":   policyCheckID,
+				"failure_stage":     "time_parsing",
+				"rotation_time_str": rotationTimeStr,
+			}
+			globalKeyRotationLogger.LogKeyRotationFailure(policyCheckID, policyErr, failureDetails)
+		}
+
+		return false, policyErr
 	}
 
 	// Calculate time until next rotation
 	nextRotation := rotationTime.Add(config.RotationInterval)
 	timeUntilRotation := time.Until(nextRotation)
-
-	// Check if rotation is needed
 	needsRotation := timeUntilRotation <= 0
+
+	// Create policy result details
+	policyDetails := map[string]interface{}{
+		"policy_check_id":     policyCheckID,
+		"current_time":        time.Now().UTC().Format(time.RFC3339),
+		"last_rotation":       rotationTime.Format(time.RFC3339),
+		"next_rotation":       nextRotation.Format(time.RFC3339),
+		"time_until_rotation": timeUntilRotation.String(),
+		"needs_rotation":      needsRotation,
+		"rotation_interval":   config.RotationInterval.String(),
+		"notify_before":       config.NotifyBefore.String(),
+	}
+
+	// Determine policy result
+	var policyResult string
+	if needsRotation {
+		policyResult = "ROTATION_REQUIRED"
+	} else if timeUntilRotation <= config.NotifyBefore {
+		policyResult = "ROTATION_APPROACHING"
+	} else {
+		policyResult = "ROTATION_NOT_NEEDED"
+	}
+
+	// Log policy check result
+	if globalKeyRotationLogger != nil {
+		if err := globalKeyRotationLogger.LogKeyRotationPolicy(policyCheckID, policyResult, policyDetails); err != nil {
+			log.Printf("Failed to log key rotation policy check: %v", err)
+		}
+	}
 
 	// If approaching rotation time, send notification
 	if timeUntilRotation <= config.NotifyBefore {
-		notifyKeyRotation(metadata)
+		notifyKeyRotationAudit(metadata, policyDetails)
 	}
 
 	return needsRotation, nil
 }
 
-// logKeyRotation logs key rotation events for audit
-func logKeyRotation(metadata map[string]interface{}) {
-	// TODO: Implement proper audit logging
-	log.Printf("Key rotation event: %+v", metadata)
+// logKeyRotationAudit logs key rotation events for comprehensive audit with proper storage
+func logKeyRotationAudit(metadata map[string]interface{}) {
+	// Enhanced audit logging with structured data
+	enrichedMetadata := make(map[string]interface{})
+	for k, v := range metadata {
+		enrichedMetadata[k] = v
+	}
+	enrichedMetadata["audit_timestamp"] = time.Now().UTC().Format(time.RFC3339)
+	enrichedMetadata["audit_source"] = "key_rotation_system"
+	enrichedMetadata["compliance_category"] = "cryptographic_operations"
+	enrichedMetadata["regulatory_required"] = true
+
+	// Create audit event
+	event := monitoring.AuditEvent{
+		ID:        fmt.Sprintf("KEY-ROT-%d", time.Now().UnixNano()),
+		Type:      monitoring.EventKeyRotation,
+		Timestamp: time.Now().UTC(),
+		User:      "system",
+		Action:    "key_rotation_completed",
+		Resource:  fmt.Sprintf("key-%s", metadata["rotation_id"]),
+		Status:    "success",
+		Details:   enrichedMetadata,
+		Risk:      "HIGH",
+	}
+
+	// Store audit event
+	if err := monitoring.LogAuditEvent(event); err != nil {
+		log.Printf("Failed to log key rotation audit event: %v", err)
+	}
 }
 
 // extractKeyMetadata extracts metadata from key data
@@ -280,44 +519,98 @@ func extractKeyMetadata(keyData []byte) (map[string]interface{}, error) {
 	return metadata, nil
 }
 
-// notifyKeyRotation sends notifications about upcoming key rotation
-func notifyKeyRotation(metadata map[string]interface{}) {
-	// Create notification event
+// notifyKeyRotationAudit sends comprehensive notifications about upcoming key rotation
+func notifyKeyRotationAudit(metadata map[string]interface{}, policyDetails map[string]interface{}) {
+	// Enhanced notification with audit trail
+	notificationDetails := map[string]interface{}{
+		"notification_id":   generateNotificationID(),
+		"notification_type": "key_rotation_approaching",
+		"notification_time": time.Now().UTC().Format(time.RFC3339),
+		"key_metadata":      metadata,
+		"policy_details":    policyDetails,
+		"urgency_level":     "high",
+		"action_required":   true,
+	}
+
+	// Create notification audit event
 	event := monitoring.AuditEvent{
-		ID:        fmt.Sprintf("KEY-ROT-%d", time.Now().UnixNano()),
+		ID:        fmt.Sprintf("KEY-NOT-%d", time.Now().UnixNano()),
 		Type:      monitoring.EventKeyRotation,
 		Timestamp: time.Now().UTC(),
+		User:      "system",
 		Action:    "key_rotation_notification",
-		Resource:  metadata["key_id"].(string),
+		Resource:  fmt.Sprintf("key-%s", metadata["key_id"]),
 		Status:    "pending",
-		Details:   metadata,
+		Details:   notificationDetails,
 		Risk:      "MEDIUM",
 	}
 
-	// Log notification event
+	// Log notification event with audit system
 	if err := monitoring.LogAuditEvent(event); err != nil {
-		log.Printf("Failed to log key rotation notification: %v", err)
+		log.Printf("Failed to log key rotation notification audit: %v", err)
 	}
 
 	// Send notification to configured channels
 	if notifyBefore, ok := metadata["notify_before"].(time.Duration); ok {
 		rotationTime := time.Now().Add(notifyBefore)
-		details := fmt.Sprintf("Key rotation scheduled for: %s\nKey ID: %s",
+		details := fmt.Sprintf("Key rotation scheduled for: %s\nKey ID: %s\nPolicy Check: %v",
 			rotationTime.Format(time.RFC3339),
-			metadata["key_id"])
+			metadata["key_id"],
+			policyDetails["policy_check_id"])
 
 		// Send to all emergency contacts
 		if contacts, ok := metadata["emergency_contacts"].([]string); ok {
 			for _, contact := range contacts {
-				sendNotification(contact, "Key Rotation Scheduled", details)
+				sendNotificationAudit(contact, "Key Rotation Scheduled", details, notificationDetails)
 			}
 		}
 	}
 }
 
-// sendNotification sends a notification to a specific contact
-func sendNotification(contact, subject, details string) {
+// sendNotificationAudit sends a notification with proper audit logging
+func sendNotificationAudit(contact, subject, details string, auditDetails map[string]interface{}) {
+	// Enhanced notification sending with audit trail
+	sendDetails := map[string]interface{}{
+		"contact":           contact,
+		"subject":           subject,
+		"details":           details,
+		"sent_time":         time.Now().UTC().Format(time.RFC3339),
+		"delivery_method":   "system_log", // In production: email/SMS/Slack
+		"notification_meta": auditDetails,
+	}
+
+	// Log notification delivery attempt
+	event := monitoring.AuditEvent{
+		ID:        fmt.Sprintf("KEY-SEND-%d", time.Now().UnixNano()),
+		Type:      monitoring.EventKeyRotation,
+		Timestamp: time.Now().UTC(),
+		User:      "system",
+		Action:    "notification_sent",
+		Resource:  contact,
+		Status:    "delivered",
+		Details:   sendDetails,
+		Risk:      "LOW",
+	}
+
+	// Store delivery audit event
+	if err := monitoring.LogAuditEvent(event); err != nil {
+		log.Printf("Failed to log notification delivery audit: %v", err)
+	}
+
 	// For now, just log the notification
 	// In production, this would integrate with email/SMS/Slack etc.
-	log.Printf("NOTIFICATION to %s: %s\n%s", contact, subject, details)
+	log.Printf("AUDIT NOTIFICATION to %s: %s\n%s", contact, subject, details)
+}
+
+// Helper functions for generating unique IDs
+func generateRotationID() string {
+	return fmt.Sprintf("ROT-%d", time.Now().UnixNano())
+}
+
+func generatePolicyCheckID() string {
+	return fmt.Sprintf("POL-%d", time.Now().UnixNano())
+}
+
+func generateNotificationID() string {
+	return fmt.Sprintf("NOT-%d", time.Now().UnixNano())
 }
